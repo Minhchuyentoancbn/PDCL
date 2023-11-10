@@ -4,6 +4,7 @@ import numpy as np
 import time
 import torch
 import warnings
+import vits.hide_prompt_vision_transformer as hide_prompt_vision_transformer
 
 from timm.models import create_model
 from timm.scheduler import create_scheduler
@@ -11,7 +12,6 @@ from timm.optim import create_optimizer
 from datasets import build_continual_dataloader
 
 from engines.hide_tii_engine import *
-
 
 warnings.filterwarnings('ignore', 'Argument interpolation should be of type InterpolationMode instead of int')
 

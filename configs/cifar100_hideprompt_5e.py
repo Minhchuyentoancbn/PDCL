@@ -16,7 +16,7 @@ def get_args_parser(subparsers):
     subparsers.add_argument('--drop-path', type=float, default=0.0, metavar='PCT', help='Drop path rate (default: 0.)')
 
     # Optimizer parameters
-    subparsers.add_argument('--opt', default='adam', type=str, metavar='OPTIMIZER', help='Optimizer (default: "adam"')
+    subparsers.add_argument('--opt', default='adam', type=str, metavar='OPTIMIZER', help='Optimizer (default: "adam")')
     subparsers.add_argument('--opt-eps', default=1e-8, type=float, metavar='EPSILON',
                             help='Optimizer Epsilon (default: 1e-8)')
     subparsers.add_argument('--opt-betas', default=(0.9, 0.999), type=float, nargs='+', metavar='BETA',
