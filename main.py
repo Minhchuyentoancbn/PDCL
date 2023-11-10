@@ -1,19 +1,11 @@
-import os
-import sys
 import argparse
-import datetime
 import random
-import time
 import numpy as np
 import utils
 import warnings
 import torch
 
 from pathlib import Path
-from timm.models import create_model
-from timm.scheduler import create_scheduler
-from timm.optim import create_optimizer
-from datasets import build_continual_dataloader
 
 
 warnings.filterwarnings('ignore', 'Argument interpolation should be of type InterpolationMode instead of int')
@@ -90,3 +82,38 @@ def get_args():
     args = parser.parse_args()
     args.config = config
     return args
+
+
+def main(args):
+    utils.init_distributed_mode(args)
+    if args.output_dir:
+        Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+    # fix the seed for reproducibility
+    seed = args.seed
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.backends.cudnn.benchmark = True
+
+    if hasattr(args, 'train_inference_task_only') and args.train_inference_task_only:
+        import trainers.tii_trainer as tii_trainer
+        tii_trainer.train(args)
+    elif 'hideprompt' in args.config and not args.train_inference_task_only:
+        import trainers.hideprompt_trainer as hideprompt_trainer
+        hideprompt_trainer.train(args)
+    elif 'l2p' in args.config or 'dualprompt' in args.config or 'sprompt' in args.config:
+        import trainers.dp_trainer as dp_trainer
+        dp_trainer.train(args)
+    elif 'hidelora' in args.config and not args.train_inference_task_only:
+        import trainers.hidelora_trainer as hidelora_trainer
+        hidelora_trainer.train(args)
+    elif 'continual_lora' in args.config:
+        import trainers.continual_lora_trainer as continual_lora_trainer
+        continual_lora_trainer.train(args)
+    else:
+        raise NotImplementedError
+
+if __name__ == '__main__':
+    args = get_args()
+    print(args)
+    main(args)
