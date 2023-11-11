@@ -356,7 +356,10 @@ class MlpMapping(nn.Module):
         else:
             self.norm = norm_layer(dim)
         self.net = nn.ModuleList(layers)
+        print('-' * 20)
+        print('MLP Architecture:')
         print(layers)
+        print('-' * 20)
 
     def forward(self, x):
         out = x
