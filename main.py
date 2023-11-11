@@ -7,7 +7,6 @@ import torch
 
 from pathlib import Path
 
-
 warnings.filterwarnings('ignore', 'Argument interpolation should be of type InterpolationMode instead of int')
 
 def get_args():

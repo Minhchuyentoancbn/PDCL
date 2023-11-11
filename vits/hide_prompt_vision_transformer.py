@@ -528,6 +528,8 @@ class VisionTransformer(nn.Module):
         self.fc_norm = norm_layer(embed_dim) if use_fc_norm else nn.Identity()
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
+        print(f'Number of classes: {num_classes}')
+
         if weight_init != 'skip':
             self.init_weights(weight_init)
 

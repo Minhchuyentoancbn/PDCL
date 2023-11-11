@@ -17,8 +17,10 @@ warnings.filterwarnings('ignore', 'Argument interpolation should be of type Inte
 
 def train(args):
     device = torch.device(args.device)
+    # Build data loader
     data_loader, data_loader_per_cls, class_mask, target_task_map = build_continual_dataloader(args)
 
+    # Build ViT
     print(f"Creating original model: {args.original_model}")
     model = create_model(
         args.original_model,
@@ -31,13 +33,14 @@ def train(args):
     )
     model.to(device)
 
+    # Freeze ViT except MLP head
     if args.freeze:
         for n, p in model.named_parameters():
             if n.startswith(tuple(args.freeze)):
                 p.requires_grad = False
     print(args)
 
-    if args.eval:
+    if args.eval:  # Evaluate only, no training
         acc_matrix = np.zeros((args.num_tasks, args.num_tasks))
 
         for task_id in range(args.num_tasks):
@@ -63,6 +66,7 @@ def train(args):
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print('number of params:', n_parameters)
 
+    # Set up learning rate
     if args.unscale_lr:
         global_batch_size = args.batch_size
     else:
@@ -70,14 +74,14 @@ def train(args):
     args.lr = args.lr * global_batch_size / 256.0
     args.ca_lr = args.ca_lr * global_batch_size / 256.0
 
+    # Build optimizer
     optimizer = create_optimizer(args, model_without_ddp)
-    #optimizer = optim.SGD([p for p in model_without_ddp.parameters() if p.requires_grad], lr=args.lr, momentum=0.9, weight_decay=args.weight_decay)
 
+    # Build scheduler
     if args.sched != 'constant':
         lr_scheduler, _ = create_scheduler(args, optimizer)
     elif args.sched == 'constant':
         lr_scheduler = None
-    #lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer=optimizer, milestones=args.milestones, gamma=0.1)
 
     criterion = torch.nn.CrossEntropyLoss().to(device)
 
@@ -91,5 +95,3 @@ def train(args):
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     print(f"Total training time: {total_time_str}")
-
-
