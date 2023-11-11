@@ -169,21 +169,21 @@ def _compute_mean(model: torch.nn.Module, data_loader: Iterable, device: torch.d
             dist.all_gather(features_per_cls_list, features_per_cls)
 
         if args.ca_storage_efficient_method == 'covariance':
-            features_per_cls = torch.cat(features_per_cls_list, dim=0)
+            # features_per_cls = torch.cat(features_per_cls_list, dim=0)
             # print(features_per_cls.shape)
             cls_mean[cls_id] = features_per_cls.mean(dim=0)
             cls_cov[cls_id] = torch.cov(features_per_cls.T) + (torch.eye(cls_mean[cls_id].shape[-1]) * 1e-4).to(device)
         if args.ca_storage_efficient_method == 'variance':
-            features_per_cls = torch.cat(features_per_cls_list, dim=0)
+            # features_per_cls = torch.cat(features_per_cls_list, dim=0)
             # print(features_per_cls.shape)
             cls_mean[cls_id] = features_per_cls.mean(dim=0)
             cls_cov[cls_id] = torch.diag(torch.cov(features_per_cls.T) + (torch.eye(cls_mean[cls_id].shape[-1]) * 1e-4).to(device))
         if args.ca_storage_efficient_method == 'multi-centroid':
             from sklearn.cluster import KMeans
             n_clusters = args.n_centroids
-            features_per_cls = torch.cat(features_per_cls_list, dim=0).cpu().numpy()
+            # features_per_cls = torch.cat(features_per_cls_list, dim=0).cpu().numpy()
+            features_per_cls = features_per_cls.cpu().numpy()
             kmeans = KMeans(n_clusters=n_clusters, n_init='auto')
-            torch.save(features_per_cls, 'features_per_cls.pt')
             kmeans.fit(features_per_cls)
             cluster_lables = kmeans.labels_
             cluster_means = []
