@@ -183,6 +183,7 @@ def _compute_mean(model: torch.nn.Module, data_loader: Iterable, device: torch.d
             n_clusters = args.n_centroids
             features_per_cls = torch.cat(features_per_cls_list, dim=0).cpu().numpy()
             kmeans = KMeans(n_clusters=n_clusters, n_init='auto')
+            print(features_per_cls.shape)
             kmeans.fit(features_per_cls)
             cluster_lables = kmeans.labels_
             cluster_means = []
