@@ -164,8 +164,9 @@ def _compute_mean(model: torch.nn.Module, data_loader: Iterable, device: torch.d
         features_per_cls = torch.cat(features_per_cls, dim=0)
         features_per_cls_list = [torch.zeros_like(features_per_cls, device=device) for _ in range(args.world_size)]
 
-        dist.barrier()
-        dist.all_gather(features_per_cls_list, features_per_cls)
+        if args.distributed:
+            dist.barrier()
+            dist.all_gather(features_per_cls_list, features_per_cls)
 
         if args.ca_storage_efficient_method == 'covariance':
             features_per_cls = torch.cat(features_per_cls_list, dim=0)
