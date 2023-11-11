@@ -227,7 +227,7 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
                                           data_loader=data_loader[task_id]['train'], optimizer=optimizer,
                                           device=device, epoch=epoch, max_norm=args.clip_grad,
                                           set_training_mode=True, task_id=task_id, class_mask=class_mask, args=args, )
-            
+
             if lr_scheduler:
                 lr_scheduler.step(epoch)
 
@@ -279,9 +279,12 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
     run_epochs = args.crct_epochs
     crct_num = 0
     param_list = [p for p in model.parameters() if p.requires_grad]
+    print('-' * 20)
+    print('Learnable parameters:')
     for name, p in model.named_parameters():
         if p.requires_grad:
             print(name)
+    print('-' * 20)
     network_params = [{'params': param_list, 'lr': args.ca_lr, 'weight_decay': args.weight_decay}]
     if 'mae' in args.model or 'beit' in args.model:
         optimizer = optim.AdamW(network_params, lr=args.ca_lr / 10, weight_decay=args.weight_decay)
