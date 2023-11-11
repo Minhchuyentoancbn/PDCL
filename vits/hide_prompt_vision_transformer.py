@@ -22,7 +22,6 @@ import logging
 from copy import deepcopy
 from functools import partial
 from collections import OrderedDict
-from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -30,8 +29,7 @@ import torch.nn.functional as F
 import torch.utils.checkpoint
 
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD, IMAGENET_INCEPTION_MEAN, IMAGENET_INCEPTION_STD
-from timm.models.helpers import build_model_with_cfg, resolve_pretrained_cfg, named_apply, adapt_input_conv, \
-    checkpoint_seq
+from timm.models.helpers import build_model_with_cfg, resolve_pretrained_cfg, named_apply, adapt_input_conv, checkpoint_seq
 from timm.models.layers import PatchEmbed, Mlp, DropPath, trunc_normal_, lecun_normal_
 from timm.models.registry import register_model
 
