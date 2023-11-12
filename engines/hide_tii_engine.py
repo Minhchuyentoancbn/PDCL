@@ -90,6 +90,9 @@ def evaluate(model: torch.nn.Module, data_loader,
 
             # here is the trick to mask out classes of non-current tasks
             if args.task_inc and class_mask is not None:
+                print('-' * 20)
+                print("Filtering out classes of non-current tasks")
+                print('-' * 20)
                 mask = class_mask[task_id]
                 mask = torch.tensor(mask, dtype=torch.int64).to(device)
                 logits_mask = torch.ones_like(logits, device=device) * float('-inf')
