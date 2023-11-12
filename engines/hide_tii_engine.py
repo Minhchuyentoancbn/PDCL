@@ -97,18 +97,33 @@ def evaluate(model: torch.nn.Module, data_loader,
                 logits = logits + logits_mask
 
             loss = criterion(logits, target)
-
+            
             acc1, acc5 = accuracy(logits, target, topk=(1, 5))
             metric_logger.update(Loss=loss.item())
             metric_logger.meters['Acc@1'].update(acc1.item(), n=input.shape[0])
             metric_logger.meters['Acc@5'].update(acc5.item(), n=input.shape[0])
 
+
+            # Compute task identity inference accuracy
+            mask = []
+            for id in range(task_id + 1):
+                mask.extend(class_mask[id])
+            not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
+            not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+            logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+
+            task_id_preds = torch.max(logits, dim=1)[1]
+            task_id_preds = torch.tensor([target_task_map[v.item()] for v in task_id_preds]).to(device)
+            batch_size = input.shape[0]
+            tii_acc = torch.sum(task_id_preds == task_id) / batch_size
+            metric_logger.meters['TII Acc'].update(tii_acc.item(), n=batch_size)
+
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print(
-        '* Acc@1 {top1.global_avg:.3f} Acc@5 {top5.global_avg:.3f} loss {losses.global_avg:.3f}'
+        '* Acc@1 {top1.global_avg:.3f} Acc@5 {top5.global_avg:.3f} loss {losses.global_avg:.3f} TII Acc {tii_acc.global_avg:.3f}'
         .format(top1=metric_logger.meters['Acc@1'], top5=metric_logger.meters['Acc@5'],
-                losses=metric_logger.meters['Loss']))
+                losses=metric_logger.meters['Loss'], tii_acc=metric_logger.meters['TII Acc']))
 
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
@@ -117,6 +132,7 @@ def evaluate(model: torch.nn.Module, data_loader,
 def evaluate_till_now(model: torch.nn.Module, data_loader,
                       device, task_id=-1, class_mask=None, target_task_map=None, acc_matrix=None, args=None, ):
     stat_matrix = np.zeros((3, args.num_tasks))  # 3 for Acc@1, Acc@5, Loss
+    tii_acc_matrix = np.zeros((args.num_tasks, ))
 
     for i in range(task_id + 1):
         test_stats = evaluate(model=model, data_loader=data_loader[i]['val'],
@@ -128,16 +144,18 @@ def evaluate_till_now(model: torch.nn.Module, data_loader,
         stat_matrix[2, i] = test_stats['Loss']
 
         acc_matrix[i, task_id] = test_stats['Acc@1']
+        tii_acc_matrix[i] = test_stats['TII Acc']
 
     avg_stat = np.divide(np.sum(stat_matrix, axis=1), task_id + 1)
-
+    avg_tii_acc = np.divide(np.sum(tii_acc_matrix), task_id + 1)
     diagonal = np.diag(acc_matrix)
 
-    result_str = "[Average accuracy till task{}]\tAcc@1: {:.4f}\tAcc@5: {:.4f}\tLoss: {:.4f}".format(
+    result_str = "[Average accuracy till task{}]\tAcc@1: {:.4f}\tAcc@5: {:.4f}\tLoss: {:.4f}\tTII Acc: {:.4f}".format(
         task_id + 1,
         avg_stat[0],
         avg_stat[1],
-        avg_stat[2])
+        avg_stat[2],
+        avg_tii_acc)
     if task_id > 0:
         forgetting = np.mean((np.max(acc_matrix, axis=1) -
                               acc_matrix[:, task_id])[:task_id])
@@ -233,13 +251,13 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
             if lr_scheduler:
                 lr_scheduler.step(epoch)
 
-        # print('-' * 20)
-        # print(f'Evaluate task {task_id + 1} before CA')
-        # test_stats_pre_ca = evaluate_till_now(model=model, data_loader=data_loader,
-        #                                       device=device,
-        #                                       task_id=task_id, class_mask=class_mask, target_task_map=target_task_map,
-        #                                       acc_matrix=pre_ca_acc_matrix, args=args)
-        # print('-' * 20)
+        print('-' * 20)
+        print(f'Evaluate task {task_id + 1} before CA')
+        test_stats_pre_ca = evaluate_till_now(model=model, data_loader=data_loader,
+                                              device=device,
+                                              task_id=task_id, class_mask=class_mask, target_task_map=target_task_map,
+                                              acc_matrix=pre_ca_acc_matrix, args=args)
+        print('-' * 20)
 
         # TODO compute mean and variance
         print('-' * 20)
