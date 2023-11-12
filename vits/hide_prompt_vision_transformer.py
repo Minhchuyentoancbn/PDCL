@@ -615,6 +615,7 @@ class VisionTransformer(nn.Module):
                             idx = torch.tensor([g_prompt_counter] * x.shape[0]).to(x.device)
                             g_prompt = self.g_prompt[idx]
                         else:
+                            print('Set g prompt to none')
                             g_prompt = None
                         x = block(x, prompt=g_prompt)
 
