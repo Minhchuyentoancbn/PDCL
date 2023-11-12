@@ -616,6 +616,7 @@ class VisionTransformer(nn.Module):
                             idx = torch.tensor([g_prompt_counter] * x.shape[0]).to(x.device)
                             g_prompt = self.g_prompt[idx]
                         else:
+                            print('Using prompt tuning')
                             g_prompt_counter += 1
                             # Pommpt tunning, [B, g_prompt_length, embed_dim]
                             g_prompt = self.g_prompt[g_prompt_counter]
