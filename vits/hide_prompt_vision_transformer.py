@@ -601,8 +601,9 @@ class VisionTransformer(nn.Module):
                 g_prompt_counter = -1
                 e_prompt_counter = -1
 
-                res = self.e_prompt(x, prompt_mask=prompt_mask, prompt_idx=prompt_id, prompt_weight=prompt_weight, prompt_momentum=prompt_momentum)
-                e_prompt = res['batched_prompt']
+                if self.use_e_prompt:
+                    res = self.e_prompt(x, prompt_mask=prompt_mask, prompt_idx=prompt_id, prompt_weight=prompt_weight, prompt_momentum=prompt_momentum)
+                    e_prompt = res['batched_prompt']
 
                 for i, block in enumerate(self.blocks):
                     if i in self.g_prompt_layer_idx:
@@ -615,7 +616,7 @@ class VisionTransformer(nn.Module):
                             g_prompt = None
                         x = block(x, prompt=g_prompt)
 
-                    elif i in self.e_prompt_layer_idx:
+                    elif i in self.e_prompt_layer_idx and self.use_e_prompt:
                         e_prompt_counter += 1
                         if self.use_prefix_tune_for_e_prompt:
                             # Prefix tunning, [B, 2, top_k * e_prompt_length, num_heads, embed_dim // num_heads]
