@@ -41,7 +41,6 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
 
         # here is the trick to mask out classes of non-current tasks
         if args.train_mask and class_mask is not None:
-            print("Filtering classes for task {}".format(task_id))
             mask = class_mask[task_id]
             not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
             not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
