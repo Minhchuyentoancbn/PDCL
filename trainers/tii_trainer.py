@@ -30,6 +30,9 @@ def train(args):
         drop_path_rate=args.drop_path,
         drop_block_rate=None,
         mlp_structure=args.original_model_mlp_structure,
+        use_g_prompt=args.use_g_prompt,
+        g_prompt_length=args.g_prompt_length,
+        g_prompt_layer_idx=args.g_prompt_layer_idx,
     )
     model.to(device)
 
@@ -38,8 +41,6 @@ def train(args):
         for n, p in model.named_parameters():
             if n.startswith(tuple(args.freeze)):
                 p.requires_grad = False
-        print("Checking global prompt requires_grad:")
-        print(model.g_prompt.requires_grad)
     print(args)
 
     if args.eval:  # Evaluate only, no training
