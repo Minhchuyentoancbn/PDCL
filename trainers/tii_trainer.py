@@ -38,6 +38,8 @@ def train(args):
         for n, p in model.named_parameters():
             if n.startswith(tuple(args.freeze)):
                 p.requires_grad = False
+        print("Checking global prompt requires_grad:")
+        print(model.g_prompt.requires_grad)
     print(args)
 
     if args.eval:  # Evaluate only, no training
