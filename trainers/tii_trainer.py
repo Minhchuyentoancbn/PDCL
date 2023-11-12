@@ -30,6 +30,7 @@ def train(args):
         drop_path_rate=args.drop_path,
         drop_block_rate=None,
         mlp_structure=args.original_model_mlp_structure,
+        prompt_pool=args.prompt_pool,
         use_g_prompt=args.use_g_prompt,
         g_prompt_length=args.g_prompt_length,
         g_prompt_layer_idx=args.g_prompt_layer_idx,
