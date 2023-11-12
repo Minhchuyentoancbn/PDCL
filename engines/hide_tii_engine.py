@@ -233,22 +233,36 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
             if lr_scheduler:
                 lr_scheduler.step(epoch)
 
+        print('-' * 20)
+        print(f'Evaluate task {task_id + 1} before CA')
         test_stats_pre_ca = evaluate_till_now(model=model, data_loader=data_loader,
                                               device=device,
                                               task_id=task_id, class_mask=class_mask, target_task_map=target_task_map,
                                               acc_matrix=pre_ca_acc_matrix, args=args)
+        print('-' * 20)
+
         # TODO compute mean and variance
+        print('-' * 20)
+        print(f'Compute mean and variance for task {task_id + 1}')
         _compute_mean(model=model, data_loader=data_loader_per_cls, device=device, class_mask=class_mask[task_id],
                       args=args)
+        print('-' * 20)
 
         # TODO classifier alignment
         if task_id > 0:
+            print('-' * 20)
+            print(f'Align classifier for task {task_id + 1}')
             train_task_adaptive_prediction(model, args, device, class_mask, task_id)
+            print('-' * 20)
 
+        # Evaluate model
+        print('-' * 20)
+        print(f'Evaluate task {task_id + 1} after CA')
         test_stats = evaluate_till_now(model=model, data_loader=data_loader,
                                        device=device,
                                        task_id=task_id, class_mask=class_mask, target_task_map=target_task_map,
                                        acc_matrix=acc_matrix, args=args)
+        print('-' * 20)
 
         if args.output_dir and utils.is_main_process():
             Path(os.path.join(args.output_dir, 'checkpoint')).mkdir(parents=True, exist_ok=True)
