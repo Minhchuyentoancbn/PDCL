@@ -615,8 +615,7 @@ class VisionTransformer(nn.Module):
                             idx = torch.tensor([g_prompt_counter] * x.shape[0]).to(x.device)
                             g_prompt = self.g_prompt[idx]
                         else:
-                            # g_prompt = None
-                            g_prompt = self.g_prompt
+                            g_prompt = None
                         x = block(x, prompt=g_prompt)
 
                     elif i in self.e_prompt_layer_idx and self.use_e_prompt:
