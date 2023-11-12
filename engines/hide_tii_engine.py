@@ -41,6 +41,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
 
         # here is the trick to mask out classes of non-current tasks
         if args.train_mask and class_mask is not None:
+            print("Filtering classes for task {}".format(task_id))
             mask = class_mask[task_id]
             not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
             not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
@@ -90,9 +91,6 @@ def evaluate(model: torch.nn.Module, data_loader,
 
             # here is the trick to mask out classes of non-current tasks
             if args.task_inc and class_mask is not None:
-                print('-' * 20)
-                print("Filtering out classes of non-current tasks")
-                print('-' * 20)
                 mask = class_mask[task_id]
                 mask = torch.tensor(mask, dtype=torch.int64).to(device)
                 logits_mask = torch.ones_like(logits, device=device) * float('-inf')
@@ -236,13 +234,13 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
             if lr_scheduler:
                 lr_scheduler.step(epoch)
 
-        print('-' * 20)
-        print(f'Evaluate task {task_id + 1} before CA')
-        test_stats_pre_ca = evaluate_till_now(model=model, data_loader=data_loader,
-                                              device=device,
-                                              task_id=task_id, class_mask=class_mask, target_task_map=target_task_map,
-                                              acc_matrix=pre_ca_acc_matrix, args=args)
-        print('-' * 20)
+        # print('-' * 20)
+        # print(f'Evaluate task {task_id + 1} before CA')
+        # test_stats_pre_ca = evaluate_till_now(model=model, data_loader=data_loader,
+        #                                       device=device,
+        #                                       task_id=task_id, class_mask=class_mask, target_task_map=target_task_map,
+        #                                       acc_matrix=pre_ca_acc_matrix, args=args)
+        # print('-' * 20)
 
         # TODO compute mean and variance
         print('-' * 20)
