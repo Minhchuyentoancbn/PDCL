@@ -645,6 +645,9 @@ class VisionTransformer(nn.Module):
 
     def forward_head(self, res, pre_logits: bool = False):
         x = res['x']
+        print('-' * 20)
+        print(x.shape)
+        print('-' * 20)
         if self.class_token and self.head_type == 'token':
             if self.prompt_pool:
                 x = x[:, self.total_prompt_len]
