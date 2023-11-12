@@ -507,7 +507,8 @@ class VisionTransformer(nn.Module):
             if not self.use_prefix_tune_for_g_prompt:
                 self.total_prompt_len += g_prompt_length * len(self.g_prompt_layer_idx)
             if not self.use_prefix_tune_for_e_prompt:
-                self.total_prompt_len += prompt_length * top_k * len(self.e_prompt_layer_idx)
+                if self.use_e_prompt:
+                    self.total_prompt_len += prompt_length * top_k * len(self.e_prompt_layer_idx)
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
         self.blocks = nn.Sequential(*[
