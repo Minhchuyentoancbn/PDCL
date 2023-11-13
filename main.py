@@ -98,11 +98,17 @@ def main(args):
     torch.backends.cudnn.benchmark = True
 
     if hasattr(args, 'train_inference_task_only') and args.train_inference_task_only:
+        print('Using HiDe-Prompt')
         import trainers.tii_trainer as tii_trainer
         tii_trainer.train(args)
     elif 'hideprompt' in args.config and not args.train_inference_task_only:
+        print('Using HiDe-Prompt')
         import trainers.hideprompt_trainer as hideprompt_trainer
         hideprompt_trainer.train(args)
+    elif 'distillprompt' in args.config:
+        print('Using distill-prompt')
+        import trainers.distillprompt_trainer as distillprompt_trainer
+        distillprompt_trainer.train(args)
     elif 'l2p' in args.config or 'dualprompt' in args.config or 'sprompt' in args.config:
         import trainers.dp_trainer as dp_trainer
         dp_trainer.train(args)
