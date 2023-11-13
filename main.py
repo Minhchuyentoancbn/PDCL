@@ -99,7 +99,10 @@ def main(args):
 
     if hasattr(args, 'train_inference_task_only') and args.train_inference_task_only:
         print('Using HiDe-Prompt')
-        import trainers.tii_trainer as tii_trainer
+        if 'hideprompt' in args.config:
+            import trainers.tii_trainer as tii_trainer
+        elif 'distillprompt' in args.config:
+            import trainers.distillprompt_tii_trainer as tii_trainer
         tii_trainer.train(args)
     elif 'hideprompt' in args.config and not args.train_inference_task_only:
         print('Using HiDe-Prompt')

@@ -22,7 +22,6 @@ import logging
 from copy import deepcopy
 from functools import partial
 from collections import OrderedDict
-from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -30,8 +29,7 @@ import torch.nn.functional as F
 import torch.utils.checkpoint
 
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD, IMAGENET_INCEPTION_MEAN, IMAGENET_INCEPTION_STD
-from timm.models.helpers import build_model_with_cfg, resolve_pretrained_cfg, named_apply, adapt_input_conv, \
-    checkpoint_seq
+from timm.models.helpers import build_model_with_cfg, resolve_pretrained_cfg, named_apply, adapt_input_conv, checkpoint_seq
 from timm.models.layers import PatchEmbed, Mlp, DropPath, trunc_normal_, lecun_normal_
 from timm.models.registry import register_model
 
@@ -358,7 +356,10 @@ class MlpMapping(nn.Module):
         else:
             self.norm = norm_layer(dim)
         self.net = nn.ModuleList(layers)
+        print('-' * 20)
+        print('MLP Architecture:')
         print(layers)
+        print('-' * 20)
 
     def forward(self, x):
         out = x
@@ -506,7 +507,8 @@ class VisionTransformer(nn.Module):
             if not self.use_prefix_tune_for_g_prompt:
                 self.total_prompt_len += g_prompt_length * len(self.g_prompt_layer_idx)
             if not self.use_prefix_tune_for_e_prompt:
-                self.total_prompt_len += prompt_length * top_k * len(self.e_prompt_layer_idx)
+                if self.use_e_prompt:
+                    self.total_prompt_len += prompt_length * top_k * len(self.e_prompt_layer_idx)
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
         self.blocks = nn.Sequential(*[
@@ -526,6 +528,9 @@ class VisionTransformer(nn.Module):
         # Classifier Head
         self.fc_norm = norm_layer(embed_dim) if use_fc_norm else nn.Identity()
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
+        self.auxillary_head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
+
+        print(f'Number of classes: {num_classes}')
 
         if weight_init != 'skip':
             self.init_weights(weight_init)
@@ -598,8 +603,11 @@ class VisionTransformer(nn.Module):
                 g_prompt_counter = -1
                 e_prompt_counter = -1
 
-                res = self.e_prompt(x, prompt_mask=prompt_mask, prompt_idx=prompt_id, prompt_weight=prompt_weight, prompt_momentum=prompt_momentum)
-                e_prompt = res['batched_prompt']
+                if self.use_e_prompt:
+                    res = self.e_prompt(x, prompt_mask=prompt_mask, prompt_idx=prompt_id, prompt_weight=prompt_weight, prompt_momentum=prompt_momentum)
+                    e_prompt = res['batched_prompt']
+                else:
+                    res = dict()
 
                 for i, block in enumerate(self.blocks):
                     if i in self.g_prompt_layer_idx:
@@ -609,10 +617,13 @@ class VisionTransformer(nn.Module):
                             idx = torch.tensor([g_prompt_counter] * x.shape[0]).to(x.device)
                             g_prompt = self.g_prompt[idx]
                         else:
-                            g_prompt = None
+                            g_prompt_counter += 1
+                            # Pommpt tunning, [B, g_prompt_length, embed_dim]
+                            g_prompt = self.g_prompt[g_prompt_counter]
+                            # g_prompt = None
                         x = block(x, prompt=g_prompt)
 
-                    elif i in self.e_prompt_layer_idx:
+                    elif i in self.e_prompt_layer_idx and self.use_e_prompt:
                         e_prompt_counter += 1
                         if self.use_prefix_tune_for_e_prompt:
                             # Prefix tunning, [B, 2, top_k * e_prompt_length, num_heads, embed_dim // num_heads]
@@ -654,6 +665,8 @@ class VisionTransformer(nn.Module):
 
         res['pre_logits'] = x
         res['features'] = x
+
+        res['auxillary_logits'] = self.auxillary_head(x)
 
         x = self.mlp(x)
         x = self.fc_norm(x)
