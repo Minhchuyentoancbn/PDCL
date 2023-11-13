@@ -102,6 +102,7 @@ def main(args):
         if 'hideprompt' in args.config:
             import trainers.tii_trainer as tii_trainer
         elif 'distillprompt' in args.config:
+            print('Using distill-prompt')
             import trainers.distillprompt_tii_trainer as tii_trainer
         tii_trainer.train(args)
     elif 'hideprompt' in args.config and not args.train_inference_task_only:
