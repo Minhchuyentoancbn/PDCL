@@ -98,8 +98,8 @@ def main(args):
     torch.backends.cudnn.benchmark = True
 
     if hasattr(args, 'train_inference_task_only') and args.train_inference_task_only:
-        print('Using HiDe-Prompt')
         if 'hideprompt' in args.config:
+            print('Using HiDe-Prompt')
             import trainers.tii_trainer as tii_trainer
         elif 'distillprompt' in args.config:
             print('Using distill-prompt')

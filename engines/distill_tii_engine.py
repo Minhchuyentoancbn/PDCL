@@ -39,8 +39,6 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
         output = model(input)
         logits = output['logits']
 
-        if args.use_auxillary_head:
-            auxillary_logits = output['auxillary_logits']
 
         # here is the trick to mask out classes of non-current tasks
         if args.train_mask and class_mask is not None:
@@ -48,12 +46,14 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
             not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
             not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
             logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
-            if args.use_auxillary_head:
-                auxillary_logits = auxillary_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
         if args.use_auxillary_head:
+            features = output['features']
+            with torch.no_grad():
+                pretrained_features = model.get_query(input)
+            auxillary_criterion = nn.L1Loss()
             main_loss = criterion(logits, target)
-            auxillary_loss = criterion(auxillary_logits, target)
+            auxillary_loss = auxillary_criterion(features, pretrained_features)
             loss = main_loss + auxillary_loss * args.auxillary_loss_weight
         else:
             loss = criterion(logits, target)
