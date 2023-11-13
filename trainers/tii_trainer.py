@@ -109,6 +109,8 @@ def train(args):
                        criterion, data_loader, data_loader_per_cls, optimizer, lr_scheduler,
                        device, class_mask, target_task_map, args)
 
+    confusion_matrix = compute_confusion_matrix(model, data_loader, device, target_task_map, args)
+
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     print(f"Total training time: {total_time_str}")
