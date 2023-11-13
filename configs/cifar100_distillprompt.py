@@ -152,3 +152,6 @@ def get_args_parser(subparsers):
     subparsers.add_argument('--n_centroids', default=10, type=int)
     # Misc parameters
     subparsers.add_argument('--print_freq', type=int, default=10, help='The frequency of printing')
+
+    # Auxillary parameters
+    subparsers.add_argument('--use_auxillary_head', action='store_true', help='if using auxillary head')

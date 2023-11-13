@@ -386,7 +386,8 @@ class VisionTransformer(nn.Module):
             top_k=None, batchwise_prompt=False, prompt_key_init='uniform', head_type='token', use_prompt_mask=False,
             use_g_prompt=False, g_prompt_length=None, g_prompt_layer_idx=None, use_prefix_tune_for_g_prompt=False,
             use_e_prompt=False, e_prompt_layer_idx=None, use_prefix_tune_for_e_prompt=False, same_key_value=False,
-            mlp_structure=[]):
+            mlp_structure=[],
+            use_auxillary_head=False):
         """
         Args:
             img_size (int, tuple): input image size
@@ -427,6 +428,7 @@ class VisionTransformer(nn.Module):
         self.num_prefix_tokens = 1 if class_token else 0
         self.no_embed_class = no_embed_class
         self.grad_checkpointing = False
+        self.use_auxillary_head = use_auxillary_head
 
         self.patch_embed = embed_layer(
             img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim)
@@ -528,7 +530,8 @@ class VisionTransformer(nn.Module):
         # Classifier Head
         self.fc_norm = norm_layer(embed_dim) if use_fc_norm else nn.Identity()
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
-        self.auxillary_head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
+        if self.use_auxillary_head:
+            self.auxillary_head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
         print(f'Number of classes: {num_classes}')
 
@@ -666,7 +669,8 @@ class VisionTransformer(nn.Module):
         res['pre_logits'] = x
         res['features'] = x
 
-        res['auxillary_logits'] = self.auxillary_head(x)
+        if self.use_auxillary_head:
+            res['auxillary_logits'] = self.auxillary_head(x)
 
         x = self.mlp(x)
         x = self.fc_norm(x)
