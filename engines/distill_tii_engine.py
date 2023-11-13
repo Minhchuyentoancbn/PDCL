@@ -54,7 +54,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
         if args.use_auxillary_head:
             main_loss = criterion(logits, target)
             auxillary_loss = criterion(auxillary_logits, target)
-            loss = main_loss + auxillary_loss
+            loss = main_loss + auxillary_loss * args.auxillary_loss_weight
         else:
             loss = criterion(logits, target)
 

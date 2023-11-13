@@ -155,3 +155,4 @@ def get_args_parser(subparsers):
 
     # Auxillary parameters
     subparsers.add_argument('--use_auxillary_head', action='store_true', help='if using auxillary head')
+    subparsers.add_argument('--auxillary_loss_weight', default=1.0, type=float, help='auxillary_loss_weight')
