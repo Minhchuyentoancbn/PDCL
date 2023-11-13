@@ -418,3 +418,26 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
         metric_logger.synchronize_between_processes()
         print("Averaged stats:", metric_logger)
         scheduler.step()
+
+@torch.no_grad()
+def compute_confusion_matrix(model: torch.nn.Module, data_loader,
+                             device, target_task_map=None, args=None, ):
+    confusion_matrix = np.zeros((args.num_tasks, args.num_tasks))
+    model.eval()
+
+    for i in range(args.num_tasks):
+
+        with torch.no_grad():
+            for input, target in data_loader[i]['val']:
+                input = input.to(device, non_blocking=True)
+                target = target.to(device, non_blocking=True)
+
+                output = model(input)
+                logits = output['logits']
+
+                task_id_preds = torch.max(logits, dim=1)[1]
+                task_id_preds = torch.tensor([target_task_map[v.item()] for v in task_id_preds]).to(device)
+                for j in range(len(task_id_preds)):
+                    confusion_matrix[i, task_id_preds[j]] += 1
+
+    return confusion_matrix
