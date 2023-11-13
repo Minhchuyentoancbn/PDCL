@@ -17,6 +17,9 @@ def get_args():
     if config == 'cifar100_hideprompt_5e':
         from configs.cifar100_hideprompt_5e import get_args_parser
         config_parser = subparser.add_parser('cifar100_hideprompt_5e', help='Split-CIFAR100 HiDe-Prompt configs')
+    elif config == 'cifar100_distillprompt':
+        from configs.cifar100_distillprompt import get_args_parser
+        config_parser = subparser.add_parser('cifar100_distillprompt', help='Split-CIFAR100 distill-prompt configs')
     elif config == 'imr_hideprompt_5e':
         from configs.imr_hideprompt_5e import get_args_parser
         config_parser = subparser.add_parser('imr_hideprompt_5e', help='Split-ImageNet-R HiDe-Prompt configs')
