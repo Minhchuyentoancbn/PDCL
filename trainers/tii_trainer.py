@@ -46,19 +46,31 @@ def train(args):
     print(args)
 
     if args.eval:  # Evaluate only, no training
-        acc_matrix = np.zeros((args.num_tasks, args.num_tasks))
+        # acc_matrix = np.zeros((args.num_tasks, args.num_tasks))
 
-        for task_id in range(args.num_tasks):
-            checkpoint_path = os.path.join(args.output_dir, 'checkpoint/task{}_checkpoint.pth'.format(task_id + 1))
-            if os.path.exists(checkpoint_path):
-                print('Loading checkpoint from:', checkpoint_path)
-                checkpoint = torch.load(checkpoint_path)
-                model.load_state_dict(checkpoint['model'])
-            else:
-                print('No checkpoint found at:', checkpoint_path)
-                return
-            _ = evaluate_till_now(model, data_loader, device,
-                                  task_id, class_mask, target_task_map, acc_matrix, args, )
+        # for task_id in range(args.num_tasks):
+        #     checkpoint_path = os.path.join(args.output_dir, 'checkpoint/task{}_checkpoint.pth'.format(task_id + 1))
+        #     if os.path.exists(checkpoint_path):
+        #         print('Loading checkpoint from:', checkpoint_path)
+        #         checkpoint = torch.load(checkpoint_path)
+        #         model.load_state_dict(checkpoint['model'])
+        #     else:
+        #         print('No checkpoint found at:', checkpoint_path)
+        #         return
+        #     _ = evaluate_till_now(model, data_loader, device,
+        #                           task_id, class_mask, target_task_map, acc_matrix, args, )
+            
+
+        checkpoint_path = os.path.join(args.output_dir, 'checkpoint/task{}_checkpoint.pth'.format(args.num_tasks))
+        if os.path.exists(checkpoint_path):
+            print('Loading checkpoint from:', checkpoint_path)
+            checkpoint = torch.load(checkpoint_path)
+            model.load_state_dict(checkpoint['model'])
+        else:
+            print('No checkpoint found at:', checkpoint_path)
+            return
+
+        confusion_matrix = compute_confusion_matrix(model, data_loader, device, target_task_map, args)
 
         return
     

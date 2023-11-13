@@ -103,15 +103,6 @@ def evaluate(model: torch.nn.Module, data_loader,
             metric_logger.meters['Acc@1'].update(acc1.item(), n=input.shape[0])
             metric_logger.meters['Acc@5'].update(acc5.item(), n=input.shape[0])
 
-
-            # Compute task identity inference accuracy
-            mask = []
-            for id in range(task_id + 1):
-                mask.extend(class_mask[id])
-            not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
-            not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
-            logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
-
             task_id_preds = torch.max(logits, dim=1)[1]
             task_id_preds = torch.tensor([target_task_map[v.item()] for v in task_id_preds]).to(device)
             batch_size = input.shape[0]
@@ -439,5 +430,16 @@ def compute_confusion_matrix(model: torch.nn.Module, data_loader,
                 task_id_preds = torch.tensor([target_task_map[v.item()] for v in task_id_preds]).to(device)
                 for j in range(len(task_id_preds)):
                     confusion_matrix[i, task_id_preds[j]] += 1
+
+    # Plot confusion matrix
+    from matplotlib import pyplot as plt
+    import seaborn as sns
+    plt.figure(figsize=(10, 10))
+    sns.heatmap(confusion_matrix, annot=True, fmt='g', cbar=False)
+    plt.xlabel("Predicted")
+    plt.ylabel("True")
+    plt.savefig(os.path.join(args.output_dir, 'confusion_matrix.png'))
+
+    print(f'TII Acc: {np.trace(confusion_matrix) / np.sum(confusion_matrix)}')
 
     return confusion_matrix
