@@ -662,11 +662,14 @@ class VisionTransformer(nn.Module):
         else:
             raise ValueError(f'Invalid classifier={self.classifier}')
 
-        res['pre_logits'] = x
-        res['features'] = x
+        # res['pre_logits'] = x
+        # res['features'] = x
 
         x = self.mlp(x)
         x = self.fc_norm(x)
+
+        res['pre_logits'] = x
+        res['features'] = x
 
         res['logits'] = self.head(x)
 
