@@ -534,8 +534,7 @@ class VisionTransformer(nn.Module):
 
         if weight_init != 'skip':
             self.init_weights(weight_init)
-        
-        self.task_head = nn.Linear(self.embed_dim, num_tasks) if num_tasks > 0 else nn.Identity()
+
 
     def init_weights(self, mode=''):
         assert mode in ('jax', 'jax_nlhb', 'moco', '')
@@ -672,7 +671,6 @@ class VisionTransformer(nn.Module):
         x = self.fc_norm(x)
 
         res['logits'] = self.head(x)
-        res['task_logits'] = self.task_head(x)
 
         return res
 
@@ -682,7 +680,6 @@ class VisionTransformer(nn.Module):
             x = self.mlp(x)
             x = self.fc_norm(x)
             res['logits'] = self.head(x)
-            res['task_logits'] = self.task_head(x)
             return res
         res = self.forward_features(x, task_id=task_id, prompt_id=prompt_id, prompt_weight=prompt_weight, train=train, prompt_momentum=prompt_momentum)
         res = self.forward_head(res)

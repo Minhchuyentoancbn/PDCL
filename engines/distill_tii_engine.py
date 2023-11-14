@@ -71,7 +71,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
 
             loss = main_loss + feature_loss * args.auxillary_loss_lambda1 + logits_loss * args.auxillary_loss_lambda2
         else:
-            loss = -criterion(logits, target)
+            loss = criterion(logits, target)
 
         acc1, acc5 = accuracy(logits, target, topk=(1, 5))
 
@@ -128,10 +128,8 @@ def evaluate(model: torch.nn.Module, data_loader,
             metric_logger.meters['Acc@1'].update(acc1.item(), n=input.shape[0])
             metric_logger.meters['Acc@5'].update(acc5.item(), n=input.shape[0])
 
-            task_logits = output['task_logits']
-            task_id_preds = torch.max(task_logits, dim=1)[1].to(device)
-            # task_id_preds = torch.max(logits, dim=1)[1]
-            # task_id_preds = torch.tensor([target_task_map[v.item()] for v in task_id_preds]).to(device)
+            task_id_preds = torch.max(logits, dim=1)[1]
+            task_id_preds = torch.tensor([target_task_map[v.item()] for v in task_id_preds]).to(device)
             batch_size = input.shape[0]
             tii_acc = torch.sum(task_id_preds == task_id) / batch_size
             metric_logger.meters['TII Acc'].update(tii_acc.item(), n=batch_size)
@@ -332,8 +330,7 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
     model.train()
     run_epochs = args.crct_epochs
     crct_num = 0
-    # param_list = [p for p in model.parameters() if p.requires_grad]
-    param_list = model.task_head.parameters()
+    param_list = [p for p in model.parameters() if p.requires_grad]
     print('-' * 20)
     print('Learnable parameters:')
     for name, p in model.named_parameters():
@@ -402,33 +399,24 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
         inputs = inputs[sf_indexes]
         targets = targets[sf_indexes]
 
-        targets_task = torch.tensor([target_task_map[v.item()] for v in targets]).to(device)
-        #print(targets)
-
         for _iter in range(crct_num):
             inp = inputs[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
-            # tgt = targets[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
-            tgt = targets_task[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
+            tgt = targets[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
             outputs = model(inp, fc_only=True)
-            # logits = outputs['logits']
+            logits = outputs['logits']
 
-            # if args.train_mask and class_mask is not None:
-            #     mask = []
-            #     for id in range(task_id+1):
-            #         mask.extend(class_mask[id])
-            #     # print(mask)
-            #     not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
-            #     not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
-            #     logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+            if args.train_mask and class_mask is not None:
+                mask = []
+                for id in range(task_id+1):
+                    mask.extend(class_mask[id])
+                # print(mask)
+                not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
+                not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+                logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-            task_logits = outputs['task_logits']
-            mask = list(range(task_id + 1))
-            not_mask = np.setdiff1d(np.arange(args.num_tasks), mask)
-            not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
-            task_logits = task_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-            loss = criterion(task_logits, tgt)  # base criterion (CrossEntropyLoss)
-            acc1, acc5 = accuracy(task_logits, tgt, topk=(1, 5))
+            loss = criterion(logits, tgt)  # base criterion (CrossEntropyLoss)
+            acc1, acc5 = accuracy(logits, tgt, topk=(1, 5))
 
             if not math.isfinite(loss.item()):
                 print("Loss is {}, stopping training".format(loss.item()))
