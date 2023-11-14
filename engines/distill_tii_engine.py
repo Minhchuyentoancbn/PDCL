@@ -62,8 +62,8 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
 
             main_loss = criterion(logits, target)
             feature_loss = feature_criterion(features, pretrained_features)
-            logits_loss = logits_criterion(nn.functional.log_softmax(logits, dim=1),
-                                           nn.functional.softmax(pretrained_logits, dim=1))
+            logits_loss = logits_criterion(nn.functional.log_softmax(logits[:, mask], dim=1),
+                                           nn.functional.softmax(pretrained_logits[:, mask], dim=1))
 
             if not math.isfinite(logits_loss.item()):
                 print("Logits loss is {}, stopping training".format(logits_loss.item()))
