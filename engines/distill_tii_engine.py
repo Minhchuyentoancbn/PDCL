@@ -276,6 +276,9 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
         if args.use_auxillary_head:
             task_center = nn.Parameter(torch.zeros((768, )).to(device))
             center_optimizer = optim.SGD([task_center], lr=0.5)
+        else:
+            task_center = None
+            center_optimizer = None
 
         for epoch in range(args.epochs):
             # Train model
