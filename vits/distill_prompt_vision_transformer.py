@@ -685,6 +685,7 @@ class VisionTransformer(nn.Module):
     
 
     def get_query(self, x):
+        res = dict()
         x = self.patch_embed(x)
 
         if self.cls_token is not None:
@@ -697,8 +698,17 @@ class VisionTransformer(nn.Module):
         else:
             x = self.blocks(x)
             x = self.norm(x)
+        
+        x = x[:, 0]
 
-        return x[:, 0]
+        res['features'] = x
+
+        x = self.mlp(x)
+        x = self.fc_norm(x)
+
+        res['logits'] = self.head(x)
+
+        return res
 
 
 def init_weights_vit_timm(module: nn.Module, name: str = ''):
