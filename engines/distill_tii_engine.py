@@ -21,7 +21,8 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 
 def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, max_norm: float = 0,
-                    set_training_mode=True, task_id=-1, class_mask=None, args=None, ):
+                    set_training_mode=True, task_id=-1, class_mask=None, args=None, 
+                    task_center=None, center_optimizer=None,):
     model.train(set_training_mode)
 
     if args.distributed and utils.get_world_size() > 1:
@@ -31,11 +32,6 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
     metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
     metric_logger.add_meter('Loss', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
     header = f'Train: Epoch[{epoch + 1:{int(math.log10(args.epochs)) + 1}}/{args.epochs}]'
-
-    if args.use_auxillary_head:
-        task_center = nn.Parameter(torch.zeros((768, )).to(device))
-        center_criterion = nn.MSELoss()
-        center_optimizer = optim.SGD([task_center], lr=0.5)
 
 
     for input, target in metric_logger.log_every(data_loader, args.print_freq, header):
@@ -55,7 +51,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
 
         if args.use_auxillary_head:
             pre_logits = output['embeddings']
-            center_loss = center_criterion(pre_logits, task_center)
+            center_loss = torch.mean(torch.sum((pre_logits - task_center) ** 2, dim=1))
             clf_loss = criterion(logits, target)
             loss = clf_loss + center_loss * args.auxillary_loss_lambda1
 
@@ -277,12 +273,17 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
             elif args.sched == 'constant':
                 lr_scheduler = None
 
+        if args.use_auxillary_head:
+            task_center = nn.Parameter(torch.zeros((768, )).to(device))
+            center_optimizer = optim.SGD([task_center], lr=0.5)
+
         for epoch in range(args.epochs):
             # Train model
             train_stats = train_one_epoch(model=model, criterion=criterion,
                                           data_loader=data_loader[task_id]['train'], optimizer=optimizer,
                                           device=device, epoch=epoch, max_norm=args.clip_grad,
                                           set_training_mode=True, task_id=task_id, class_mask=class_mask, args=args,
+                                          task_center=task_center, center_optimizer=center_optimizer,
                                           )
                                         
 
