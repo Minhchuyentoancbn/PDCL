@@ -49,10 +49,10 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
 
         if args.use_auxillary_head:
             features = output['features']
-            with torch.no_grad():
-                pretrained_res = model.get_query(input)
-                pretrained_features = pretrained_res['features']
-                pretrained_logits = pretrained_res['logits']
+
+            pretrained_res = model.get_query(input)
+            pretrained_features = pretrained_res['features']
+            pretrained_logits = pretrained_res['logits']
 
             if args.train_mask and class_mask is not None:
                 pretrained_logits = pretrained_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
