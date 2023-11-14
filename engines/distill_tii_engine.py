@@ -22,7 +22,7 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, max_norm: float = 0,
                     set_training_mode=True, task_id=-1, class_mask=None, args=None, 
-                    task_center=None, center_optimizer=None,):
+                    center_criterion=None, center_optimizer=None,):
     model.train(set_training_mode)
 
     if args.distributed and utils.get_world_size() > 1:
@@ -51,7 +51,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
 
         if args.use_auxillary_head:
             pre_logits = output['embeddings']
-            center_loss = torch.mean(torch.sum((pre_logits - task_center) ** 2, dim=1))
+            center_loss = center_criterion(pre_logits, target)
             clf_loss = criterion(logits, target)
             loss = clf_loss + center_loss * args.auxillary_loss_lambda1
 
@@ -59,8 +59,9 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
             center_optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
-
-            task_center.grad.data *= (1. / args.auxillary_loss_lambda1)
+            
+            for param in center_criterion.parameters():
+                param.grad.data *= (1. / args.auxillary_loss_lambda1)
 
             optimizer.step()
             center_optimizer.step()
@@ -263,6 +264,13 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
     cls_mean = dict()
     cls_cov = dict()
 
+    if args.use_auxillary_head:
+        center_criterion = CenterLoss(args.nb_classes, 768).to(device)
+        center_optimizer = optim.SGD(center_criterion.parameters(), lr=0.5)
+    else:
+        center_criterion = None
+        center_optimizer = None
+
     for task_id in range(args.num_tasks):
 
         # Create new optimizer for each task to clear optimizer status
@@ -273,12 +281,7 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
             elif args.sched == 'constant':
                 lr_scheduler = None
 
-        if args.use_auxillary_head:
-            task_center = nn.Parameter(torch.zeros((768, )).to(device))
-            center_optimizer = optim.SGD([task_center], lr=0.5)
-        else:
-            task_center = None
-            center_optimizer = None
+
 
         for epoch in range(args.epochs):
             # Train model
@@ -286,7 +289,7 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
                                           data_loader=data_loader[task_id]['train'], optimizer=optimizer,
                                           device=device, epoch=epoch, max_norm=args.clip_grad,
                                           set_training_mode=True, task_id=task_id, class_mask=class_mask, args=args,
-                                          task_center=task_center, center_optimizer=center_optimizer,
+                                          center_criterion=center_criterion, center_optimizer=center_optimizer,
                                           )
                                         
 
@@ -494,3 +497,38 @@ def compute_confusion_matrix(model: torch.nn.Module, data_loader,
     print(f'TII Acc: {np.trace(confusion_matrix) / np.sum(confusion_matrix)}')
 
     return confusion_matrix
+
+
+class CenterLoss(nn.Module):
+    """
+    Center Loss
+    """
+
+    def __init__(self, num_classes:int=1000, feat_dim:int=768):
+        """
+        Parameters
+        ----------
+        num_classes: int
+            number of classes
+
+        feat_dim: int
+            feature dimension
+        """
+        super(CenterLoss, self).__init__()
+        self.num_classes = num_classes
+        self.feat_dim = feat_dim
+
+        self.centers = nn.Parameter(torch.randn(self.num_classes, self.feat_dim))
+
+
+    def forward(self, x, labels):
+        batch_size = labels.size(0)
+        distmat = torch.pow(x, 2).sum(dim=1, keepdim=True).expand(batch_size, self.num_classes) + \
+                  torch.pow(self.centers, 2).sum(dim=1, keepdim=True).expand(self.num_classes, batch_size).t()  # (batch_size, num_classes)
+        distmat.addmm_(x, self.centers.t(), beta=1, alpha=-2)
+        classes = torch.arange(self.num_classes).long().to(labels.device)
+        labels = labels.unsqueeze(1).expand(batch_size, self.num_classes)
+        mask = labels.eq(classes.expand(batch_size, self.num_classes))
+        dist = distmat * mask.float()
+        loss = dist.clamp(min=1e-12, max=1e+12).sum() / batch_size
+        return loss
