@@ -332,7 +332,8 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
     model.train()
     run_epochs = args.crct_epochs
     crct_num = 0
-    param_list = [p for p in model.parameters() if p.requires_grad]
+    # param_list = [p for p in model.parameters() if p.requires_grad]
+    param_list = model.task_head.parameters()
     print('-' * 20)
     print('Learnable parameters:')
     for name, p in model.named_parameters():
