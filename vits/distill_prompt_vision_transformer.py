@@ -386,7 +386,8 @@ class VisionTransformer(nn.Module):
             top_k=None, batchwise_prompt=False, prompt_key_init='uniform', head_type='token', use_prompt_mask=False,
             use_g_prompt=False, g_prompt_length=None, g_prompt_layer_idx=None, use_prefix_tune_for_g_prompt=False,
             use_e_prompt=False, e_prompt_layer_idx=None, use_prefix_tune_for_e_prompt=False, same_key_value=False,
-            mlp_structure=[]):
+            mlp_structure=[],
+            num_tasks=10):
         """
         Args:
             img_size (int, tuple): input image size
@@ -533,6 +534,8 @@ class VisionTransformer(nn.Module):
 
         if weight_init != 'skip':
             self.init_weights(weight_init)
+        
+        self.task_head = nn.Linear(self.embed_dim, num_tasks) if num_tasks > 0 else nn.Identity()
 
     def init_weights(self, mode=''):
         assert mode in ('jax', 'jax_nlhb', 'moco', '')
@@ -669,6 +672,7 @@ class VisionTransformer(nn.Module):
         x = self.fc_norm(x)
 
         res['logits'] = self.head(x)
+        res['task_logits'] = self.task_head(x)
 
         return res
 
@@ -678,6 +682,7 @@ class VisionTransformer(nn.Module):
             x = self.mlp(x)
             x = self.fc_norm(x)
             res['logits'] = self.head(x)
+            res['task_logits'] = self.task_head(x)
             return res
         res = self.forward_features(x, task_id=task_id, prompt_id=prompt_id, prompt_weight=prompt_weight, train=train, prompt_momentum=prompt_momentum)
         res = self.forward_head(res)

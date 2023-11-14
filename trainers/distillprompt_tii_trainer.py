@@ -35,6 +35,7 @@ def train(args):
         g_prompt_layer_idx=args.g_prompt_layer_idx,
         use_prefix_tune_for_g_prompt=args.use_prefix_tune_for_g_prompt,
         e_prompt_layer_idx=args.e_prompt_layer_idx,
+        num_tasks=args.num_tasks,
     )
     model.to(device)
 
