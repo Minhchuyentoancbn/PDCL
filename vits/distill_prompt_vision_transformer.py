@@ -670,6 +670,8 @@ class VisionTransformer(nn.Module):
         x = self.mlp(x)
         x = self.fc_norm(x)
 
+        res['embeddings'] = x
+
         res['logits'] = self.head(x)
 
         return res

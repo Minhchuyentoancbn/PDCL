@@ -32,6 +32,12 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
     metric_logger.add_meter('Loss', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
     header = f'Train: Epoch[{epoch + 1:{int(math.log10(args.epochs)) + 1}}/{args.epochs}]'
 
+    if args.use_auxillary_head:
+        task_center = nn.Parameter(torch.zeros((768, )).to(device))
+        center_criterion = nn.MSELoss()
+        center_optimizer = optim.SGD([task_center], lr=0.5)
+
+
     for input, target in metric_logger.log_every(data_loader, args.print_freq, header):
         input = input.to(device, non_blocking=True)
         target = target.to(device, non_blocking=True)
@@ -48,41 +54,55 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
             logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
         if args.use_auxillary_head:
-            features = output['features']
+            pre_logits = output['embeddings']
+            center_loss = center_criterion(pre_logits, task_center)
+            clf_loss = criterion(logits, target)
+            loss = clf_loss + center_loss * args.auxillary_loss_lambda1
 
-            pretrained_res = model.get_query(input)
-            pretrained_features = pretrained_res['features']
-            pretrained_logits = pretrained_res['logits']
+            optimizer.zero_grad()
+            center_optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
 
-            if args.train_mask and class_mask is not None:
-                pretrained_logits = pretrained_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+            task_center.grad.data *= (1. / args.auxillary_loss_lambda1)
 
-            feature_criterion = nn.L1Loss()
-            logits_criterion = nn.KLDivLoss(reduction='batchmean')
+            optimizer.step()
+            center_optimizer.step()
 
-            main_loss = criterion(logits, target)
-            feature_loss = feature_criterion(features, pretrained_features)
-            logits_loss = logits_criterion(nn.functional.log_softmax(logits[:, mask], dim=1),
-                                           nn.functional.softmax(pretrained_logits[:, mask], dim=1))
-
-            if not math.isfinite(logits_loss.item()):
-                print("Logits loss is {}, stopping training".format(logits_loss.item()))
+            if not math.isfinite(loss.item()):
+                print("Loss is {}, stopping training".format(loss.item()))
                 sys.exit(1)
 
-            loss = main_loss + feature_loss * args.auxillary_loss_lambda1 + logits_loss * args.auxillary_loss_lambda2
+
+            # features = output['features']
+
+            # pretrained_res = model.get_query(input)
+            # pretrained_features = pretrained_res['features']
+            # pretrained_logits = pretrained_res['logits']
+
+            # if args.train_mask and class_mask is not None:
+            #     pretrained_logits = pretrained_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+
+            # feature_criterion = nn.L1Loss()
+            # logits_criterion = nn.KLDivLoss(reduction='batchmean')
+
+            # main_loss = criterion(logits, target)
+            # feature_loss = feature_criterion(features, pretrained_features)
+            # logits_loss = logits_criterion(nn.functional.log_softmax(logits[:, mask], dim=1),
+            #                                nn.functional.softmax(pretrained_logits[:, mask], dim=1))
+
+            # loss = main_loss + feature_loss * args.auxillary_loss_lambda1 + logits_loss * args.auxillary_loss_lambda2
         else:
             loss = criterion(logits, target)
+            if not math.isfinite(loss.item()):
+                print("Loss is {}, stopping training".format(loss.item()))
+                sys.exit(1)
+            optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+            optimizer.step()
 
         acc1, acc5 = accuracy(logits, target, topk=(1, 5))
-
-        if not math.isfinite(loss.item()):
-            print("Loss is {}, stopping training".format(loss.item()))
-            sys.exit(1)
-
-        optimizer.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
-        optimizer.step()
 
         torch.cuda.synchronize()
         metric_logger.update(Loss=loss.item())
