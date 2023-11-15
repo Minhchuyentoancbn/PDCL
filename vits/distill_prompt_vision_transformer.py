@@ -531,6 +531,8 @@ class VisionTransformer(nn.Module):
 
         print(f'Number of classes: {num_classes}')
 
+        self.task_head = nn.Linear(768, 10)
+
         if weight_init != 'skip':
             self.init_weights(weight_init)
 
@@ -672,6 +674,7 @@ class VisionTransformer(nn.Module):
         res['embeddings'] = x
 
         res['logits'] = self.head(x)
+        res['task_logits'] = self.task_head(x)
 
         return res
 
@@ -681,6 +684,7 @@ class VisionTransformer(nn.Module):
             x = self.mlp(x)
             x = self.fc_norm(x)
             res['logits'] = self.head(x)
+            res['task_logits'] = self.task_head(x)
             return res
         res = self.forward_features(x, task_id=task_id, prompt_id=prompt_id, prompt_weight=prompt_weight, train=train, prompt_momentum=prompt_momentum)
         res = self.forward_head(res)
