@@ -71,8 +71,7 @@ def train(args):
             print('No checkpoint found at:', checkpoint_path)
             return
 
-        # confusion_matrix = compute_confusion_matrix(model, data_loader, device, target_task_map, args)
-        compute_feature_embedding(model, data_loader, device, args)
+        confusion_matrix = compute_confusion_matrix(model, data_loader, device, target_task_map, args)
 
         return
     
