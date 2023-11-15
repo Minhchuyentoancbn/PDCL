@@ -61,7 +61,8 @@ def train(args):
         #                           task_id, class_mask, target_task_map, acc_matrix, args, )
             
 
-        checkpoint_path = os.path.join(args.output_dir, 'checkpoint/task{}_checkpoint.pth'.format(args.num_tasks))
+        # checkpoint_path = os.path.join(args.output_dir, 'checkpoint/task{}_checkpoint.pth'.format(args.num_tasks))
+        checkpoint_path = os.path.join(args.output_dir, 'checkpoint/task2_checkpoint.pth')
         if os.path.exists(checkpoint_path):
             print('Loading checkpoint from:', checkpoint_path)
             checkpoint = torch.load(checkpoint_path)
@@ -70,7 +71,8 @@ def train(args):
             print('No checkpoint found at:', checkpoint_path)
             return
 
-        confusion_matrix = compute_confusion_matrix(model, data_loader, device, target_task_map, args)
+        # confusion_matrix = compute_confusion_matrix(model, data_loader, device, target_task_map, args)
+        compute_feature_embedding(model, data_loader, device, args)
 
         return
     
@@ -114,3 +116,4 @@ def train(args):
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     print(f"Total training time: {total_time_str}")
+

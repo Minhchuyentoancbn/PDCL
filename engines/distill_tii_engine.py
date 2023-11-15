@@ -52,7 +52,8 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
         if args.use_auxillary_head:
             pre_logits = output['embeddings']
             center_loss = center_criterion(pre_logits, target)
-            clf_loss = criterion(logits, target)
+            # clf_loss = criterion(logits, target)
+            clf_loss = 0
             loss = clf_loss + center_loss * args.auxillary_loss_lambda1
 
             optimizer.zero_grad()
@@ -532,3 +533,37 @@ class CenterLoss(nn.Module):
         dist = distmat * mask.float()
         loss = dist.clamp(min=1e-12, max=1e+12).sum() / batch_size
         return loss
+    
+
+@torch.no_grad()
+def compute_feature_embedding(model: torch.nn.Module, data_loader,
+                              device, args=None, ):
+    feature_embeddings = []
+    targets = []
+    pre_logits = []
+
+    model.eval()
+
+
+    with torch.no_grad():
+        for i in range(2):
+            for input, target in data_loader[i]['val']:
+                input = input.to(device, non_blocking=True)
+                target = target.to(device, non_blocking=True)
+
+                output = model(input)
+                embedding = output['embeddings']
+                pre_logit = output['pre_logits']
+                feature_embeddings.append(embedding.cpu())
+                targets.append(target.cpu())
+                pre_logits.append(pre_logit.cpu())
+
+    feature_embeddings = torch.cat(feature_embeddings, dim=0)
+    targets = torch.cat(targets, dim=0)
+    pre_logits = torch.cat(pre_logits, dim=0)
+
+    torch.save(feature_embeddings, os.path.join(args.output_dir, 'task2_feature_embeddings.pth'))
+    torch.save(targets, os.path.join(args.output_dir, 'task2_targets.pth'))
+    torch.save(pre_logits, os.path.join(args.output_dir, 'task2_pre_logits.pth'))
+
+    return
