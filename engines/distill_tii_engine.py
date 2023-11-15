@@ -22,7 +22,6 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, max_norm: float = 0,
                     set_training_mode=True, task_id=-1, class_mask=None, args=None, 
-                    center_criterion=None, center_optimizer=None,
                     target_task_map=None,
                     ):
     model.train(set_training_mode)
@@ -43,55 +42,32 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
         output = model(input)
         logits = output['logits']
 
-        # # here is the trick to mask out classes of non-current tasks
-        # if args.train_mask and class_mask is not None:
-        #     mask = class_mask[task_id]
-        #     not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
-        #     not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
-        #     logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+        # here is the trick to mask out classes of non-current tasks
+        if args.train_mask and class_mask is not None:
+            mask = class_mask[task_id]
+            not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
+            not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+            logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
         if args.use_auxillary_head:
-            pre_logits = output['embeddings']
-            target_task = torch.tensor([target_task_map[v.item()] for v in target]).to(device)
-            center_loss = center_criterion(pre_logits, target_task)
-            # clf_loss = criterion(logits, target)
-            clf_loss = 0
-            loss = clf_loss + center_loss * args.auxillary_loss_lambda1
+            features = output['features']
 
-            optimizer.zero_grad()
-            center_optimizer.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
-            
-            for param in center_criterion.parameters():
-                param.grad.data *= (1. / args.auxillary_loss_lambda1)
+            pretrained_res = model.get_query(input)
+            pretrained_features = pretrained_res['features']
+            pretrained_logits = pretrained_res['logits']
 
-            optimizer.step()
-            center_optimizer.step()
+            if args.train_mask and class_mask is not None:
+                pretrained_logits = pretrained_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-            if not math.isfinite(loss.item()):
-                print("Loss is {}, stopping training".format(loss.item()))
-                sys.exit(1)
+            feature_criterion = nn.L1Loss()
+            logits_criterion = nn.KLDivLoss(reduction='batchmean')
 
+            main_loss = criterion(logits, target)
+            feature_loss = feature_criterion(features, pretrained_features)
+            logits_loss = logits_criterion(nn.functional.log_softmax(logits[:, mask], dim=1),
+                                           nn.functional.softmax(pretrained_logits[:, mask], dim=1))
 
-            # features = output['features']
-
-            # pretrained_res = model.get_query(input)
-            # pretrained_features = pretrained_res['features']
-            # pretrained_logits = pretrained_res['logits']
-
-            # if args.train_mask and class_mask is not None:
-            #     pretrained_logits = pretrained_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
-
-            # feature_criterion = nn.L1Loss()
-            # logits_criterion = nn.KLDivLoss(reduction='batchmean')
-
-            # main_loss = criterion(logits, target)
-            # feature_loss = feature_criterion(features, pretrained_features)
-            # logits_loss = logits_criterion(nn.functional.log_softmax(logits[:, mask], dim=1),
-            #                                nn.functional.softmax(pretrained_logits[:, mask], dim=1))
-
-            # loss = main_loss + feature_loss * args.auxillary_loss_lambda1 + logits_loss * args.auxillary_loss_lambda2
+            loss = main_loss + feature_loss * args.auxillary_loss_lambda1 + logits_loss * args.auxillary_loss_lambda2
         else:
             loss = criterion(logits, target)
             if not math.isfinite(loss.item()):
@@ -132,10 +108,6 @@ def evaluate(model: torch.nn.Module, data_loader,
 
             output = model(input)
             logits = output['logits']
-            
-            #############
-            target = torch.tensor([target_task_map[v.item()] for v in target]).to(device)
-            #############
 
             # here is the trick to mask out classes of non-current tasks
             if args.task_inc and class_mask is not None:
@@ -271,13 +243,6 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
     cls_mean = dict()
     cls_cov = dict()
 
-    if args.use_auxillary_head:
-        center_criterion = CenterLoss(args.num_tasks, 768).to(device)
-        center_optimizer = optim.SGD(center_criterion.parameters(), lr=0.5)
-    else:
-        center_criterion = None
-        center_optimizer = None
-
     for task_id in range(args.num_tasks):
 
         # Create new optimizer for each task to clear optimizer status
@@ -296,7 +261,6 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
                                           data_loader=data_loader[task_id]['train'], optimizer=optimizer,
                                           device=device, epoch=epoch, max_norm=args.clip_grad,
                                           set_training_mode=True, task_id=task_id, class_mask=class_mask, args=args,
-                                          center_criterion=center_criterion, center_optimizer=center_optimizer,
                                           target_task_map=target_task_map,)
                                         
 
@@ -433,9 +397,6 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
         inputs = inputs[sf_indexes]
         targets = targets[sf_indexes]
 
-        ##################
-        targets = torch.tensor([target_task_map[v.item()] for v in targets]).to(device)
-        ##################
 
         for _iter in range(crct_num):
             inp = inputs[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
@@ -443,19 +404,14 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
             outputs = model(inp, fc_only=True)
             logits = outputs['logits']
 
-            # if args.train_mask and class_mask is not None:
-            #     mask = []
-            #     for id in range(task_id+1):
-            #         mask.extend(class_mask[id])
-            #     # print(mask)
-            #     not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
-            #     not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
-            #     logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
-
-            mask = list(range(task_id + 1))
-            not_mask = np.setdiff1d(np.arange(args.num_tasks), mask)
-            not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
-            logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+            if args.train_mask and class_mask is not None:
+                mask = []
+                for id in range(task_id+1):
+                    mask.extend(class_mask[id])
+                # print(mask)
+                not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
+                not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+                logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
 
             loss = criterion(logits, tgt)  # base criterion (CrossEntropyLoss)
