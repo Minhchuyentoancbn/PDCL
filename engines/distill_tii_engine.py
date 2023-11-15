@@ -38,11 +38,10 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
 
     for input, target in metric_logger.log_every(data_loader, args.print_freq, header):
         input = input.to(device, non_blocking=True)
-        target = target.to(device, non_blocking=True)
+        # target = target.to(device, non_blocking=True)
 
         output = model(input)
         logits = output['logits']
-
 
         # here is the trick to mask out classes of non-current tasks
         if args.train_mask and class_mask is not None:
