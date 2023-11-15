@@ -321,14 +321,14 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
             train_task_adaptive_prediction(model, args, device, class_mask, task_id, target_task_map=target_task_map)
             print('-' * 20)
 
-            # Evaluate model
-            print('-' * 20)
-            print(f'Evaluate task {task_id + 1} after CA')
-            test_stats = evaluate_till_now(model=model, data_loader=data_loader,
-                                        device=device,
-                                        task_id=task_id, class_mask=class_mask, target_task_map=target_task_map,
-                                        acc_matrix=acc_matrix, args=args)
-            print('-' * 20)
+        # Evaluate model
+        print('-' * 20)
+        print(f'Evaluate task {task_id + 1} after CA')
+        test_stats = evaluate_till_now(model=model, data_loader=data_loader,
+                                    device=device,
+                                    task_id=task_id, class_mask=class_mask, target_task_map=target_task_map,
+                                    acc_matrix=acc_matrix, args=args)
+        print('-' * 20)
 
         if args.output_dir and utils.is_main_process():
             Path(os.path.join(args.output_dir, 'checkpoint')).mkdir(parents=True, exist_ok=True)
