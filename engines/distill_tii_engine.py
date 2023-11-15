@@ -22,7 +22,9 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, max_norm: float = 0,
                     set_training_mode=True, task_id=-1, class_mask=None, args=None, 
-                    center_criterion=None, center_optimizer=None,):
+                    center_criterion=None, center_optimizer=None,
+                    target_task_map=None,
+                    ):
     model.train(set_training_mode)
 
     if args.distributed and utils.get_world_size() > 1:
@@ -51,7 +53,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
 
         if args.use_auxillary_head:
             pre_logits = output['embeddings']
-            target_task = torch.tensor([args.target_task_map[v.item()] for v in target]).to(device)
+            target_task = torch.tensor([target_task_map[v.item()] for v in target]).to(device)
             center_loss = center_criterion(pre_logits, target_task)
             # clf_loss = criterion(logits, target)
             clf_loss = 0
@@ -295,7 +297,7 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
                                           device=device, epoch=epoch, max_norm=args.clip_grad,
                                           set_training_mode=True, task_id=task_id, class_mask=class_mask, args=args,
                                           center_criterion=center_criterion, center_optimizer=center_optimizer,
-                                          )
+                                          target_task_map=target_task_map,)
                                         
 
             if lr_scheduler:
