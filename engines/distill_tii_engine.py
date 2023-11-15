@@ -51,7 +51,8 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
 
         if args.use_auxillary_head:
             pre_logits = output['embeddings']
-            center_loss = center_criterion(pre_logits, target)
+            target_task = torch.tensor([args.target_task_map[v.item()] for v in target]).to(device)
+            center_loss = center_criterion(pre_logits, target_task)
             # clf_loss = criterion(logits, target)
             clf_loss = 0
             loss = clf_loss + center_loss * args.auxillary_loss_lambda1
@@ -269,7 +270,7 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
     cls_cov = dict()
 
     if args.use_auxillary_head:
-        center_criterion = CenterLoss(args.nb_classes, 768).to(device)
+        center_criterion = CenterLoss(args.num_tasks, 768).to(device)
         center_optimizer = optim.SGD(center_criterion.parameters(), lr=0.5)
     else:
         center_criterion = None
