@@ -43,16 +43,16 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
         output = model(input)
         logits = output['logits']
 
-        # here is the trick to mask out classes of non-current tasks
-        if args.train_mask and class_mask is not None:
-            mask = class_mask[task_id]
-            not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
-            not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
-            logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+        # # here is the trick to mask out classes of non-current tasks
+        # if args.train_mask and class_mask is not None:
+        #     mask = class_mask[task_id]
+        #     not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
+        #     not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+        #     logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
         if args.use_auxillary_head:
             pre_logits = output['embeddings']
-            target_task = torch.tensor([target_task_map[v.item()] for v in target]).to(device, non_blocking=True)
+            target_task = torch.tensor([target_task_map[v.item()] for v in target]).to(device)
             center_loss = center_criterion(pre_logits, target_task)
             # clf_loss = criterion(logits, target)
             clf_loss = 0
