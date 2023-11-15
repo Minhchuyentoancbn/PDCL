@@ -8,7 +8,6 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.distributed as dist
 import numpy as np
 
@@ -22,9 +21,7 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 
 def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, max_norm: float = 0,
-                    set_training_mode=True, task_id=-1, class_mask=None, args=None, 
-                    target_task_map=None,
-                    ):
+                    set_training_mode=True, task_id=-1, class_mask=None, args=None, ):
     model.train(set_training_mode)
 
     if args.distributed and utils.get_world_size() > 1:
@@ -35,13 +32,13 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
     metric_logger.add_meter('Loss', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
     header = f'Train: Epoch[{epoch + 1:{int(math.log10(args.epochs)) + 1}}/{args.epochs}]'
 
-
     for input, target in metric_logger.log_every(data_loader, args.print_freq, header):
         input = input.to(device, non_blocking=True)
         target = target.to(device, non_blocking=True)
 
         output = model(input)
         logits = output['logits']
+
 
         # here is the trick to mask out classes of non-current tasks
         if args.train_mask and class_mask is not None:
@@ -52,10 +49,10 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
 
         if args.use_auxillary_head:
             features = output['features']
-            with torch.no_grad():
-                pretrained_res = model.get_query(input)
-                pretrained_features = pretrained_res['features']
-                pretrained_logits = pretrained_res['logits']
+
+            pretrained_res = model.get_query(input)
+            pretrained_features = pretrained_res['features']
+            pretrained_logits = pretrained_res['logits']
 
             if args.train_mask and class_mask is not None:
                 pretrained_logits = pretrained_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
@@ -65,21 +62,27 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
 
             main_loss = criterion(logits, target)
             feature_loss = feature_criterion(features, pretrained_features)
-            logits_loss = logits_criterion(F.log_softmax(logits[:, mask], dim=1),
-                                           F.softmax(pretrained_logits[:, mask], dim=1))
+            logits_loss = logits_criterion(nn.functional.log_softmax(logits[:, mask], dim=1),
+                                           nn.functional.softmax(pretrained_logits[:, mask], dim=1))
+
+            if not math.isfinite(logits_loss.item()):
+                print("Logits loss is {}, stopping training".format(logits_loss.item()))
+                sys.exit(1)
 
             loss = main_loss + feature_loss * args.auxillary_loss_lambda1 + logits_loss * args.auxillary_loss_lambda2
         else:
             loss = criterion(logits, target)
-            if not math.isfinite(loss.item()):
-                print("Loss is {}, stopping training".format(loss.item()))
-                sys.exit(1)
-            optimizer.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
-            optimizer.step()
 
         acc1, acc5 = accuracy(logits, target, topk=(1, 5))
+
+        if not math.isfinite(loss.item()):
+            print("Loss is {}, stopping training".format(loss.item()))
+            sys.exit(1)
+
+        optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+        optimizer.step()
 
         torch.cuda.synchronize()
         metric_logger.update(Loss=loss.item())
@@ -254,15 +257,13 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
             elif args.sched == 'constant':
                 lr_scheduler = None
 
-
-
         for epoch in range(args.epochs):
             # Train model
             train_stats = train_one_epoch(model=model, criterion=criterion,
                                           data_loader=data_loader[task_id]['train'], optimizer=optimizer,
                                           device=device, epoch=epoch, max_norm=args.clip_grad,
                                           set_training_mode=True, task_id=task_id, class_mask=class_mask, args=args,
-                                          target_task_map=target_task_map,)
+                                          )
                                         
 
             if lr_scheduler:
@@ -287,16 +288,16 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
         if task_id > 0:
             print('-' * 20)
             print(f'Align classifier for task {task_id + 1}')
-            train_task_adaptive_prediction(model, args, device, class_mask, task_id, target_task_map=target_task_map)
+            train_task_adaptive_prediction(model, args, device, class_mask, task_id)
             print('-' * 20)
 
         # Evaluate model
         print('-' * 20)
         print(f'Evaluate task {task_id + 1} after CA')
         test_stats = evaluate_till_now(model=model, data_loader=data_loader,
-                                    device=device,
-                                    task_id=task_id, class_mask=class_mask, target_task_map=target_task_map,
-                                    acc_matrix=acc_matrix, args=args)
+                                       device=device,
+                                       task_id=task_id, class_mask=class_mask, target_task_map=target_task_map,
+                                       acc_matrix=acc_matrix, args=args)
         print('-' * 20)
 
         if args.output_dir and utils.is_main_process():
@@ -325,7 +326,7 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
                 f.write(json.dumps(log_stats) + '\n')
 
 
-def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_mask=None, task_id=-1, target_task_map=None):
+def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_mask=None, task_id=-1):
     model.train()
     run_epochs = args.crct_epochs
     crct_num = 0
@@ -397,7 +398,7 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
         sf_indexes = torch.randperm(inputs.size(0))
         inputs = inputs[sf_indexes]
         targets = targets[sf_indexes]
-
+        #print(targets)
 
         for _iter in range(crct_num):
             inp = inputs[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
@@ -413,7 +414,6 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
                 not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
                 not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
                 logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
-
 
             loss = criterion(logits, tgt)  # base criterion (CrossEntropyLoss)
             acc1, acc5 = accuracy(logits, tgt, topk=(1, 5))
@@ -470,72 +470,3 @@ def compute_confusion_matrix(model: torch.nn.Module, data_loader,
     print(f'TII Acc: {np.trace(confusion_matrix) / np.sum(confusion_matrix)}')
 
     return confusion_matrix
-
-
-class CenterLoss(nn.Module):
-    """
-    Center Loss
-    """
-
-    def __init__(self, num_classes:int=1000, feat_dim:int=768):
-        """
-        Parameters
-        ----------
-        num_classes: int
-            number of classes
-
-        feat_dim: int
-            feature dimension
-        """
-        super(CenterLoss, self).__init__()
-        self.num_classes = num_classes
-        self.feat_dim = feat_dim
-
-        self.centers = nn.Parameter(torch.randn(self.num_classes, self.feat_dim))
-
-
-    def forward(self, x, labels):
-        batch_size = labels.size(0)
-        distmat = torch.pow(x, 2).sum(dim=1, keepdim=True).expand(batch_size, self.num_classes) + \
-                  torch.pow(self.centers, 2).sum(dim=1, keepdim=True).expand(self.num_classes, batch_size).t()  # (batch_size, num_classes)
-        distmat.addmm_(x, self.centers.t(), beta=1, alpha=-2)
-        classes = torch.arange(self.num_classes).long().to(labels.device)
-        labels = labels.unsqueeze(1).expand(batch_size, self.num_classes)
-        mask = labels.eq(classes.expand(batch_size, self.num_classes))
-        dist = distmat * mask.float()
-        loss = dist.clamp(min=1e-12, max=1e+12).sum() / batch_size
-        return loss
-    
-
-@torch.no_grad()
-def compute_feature_embedding(model: torch.nn.Module, data_loader,
-                              device, args=None, ):
-    feature_embeddings = []
-    targets = []
-    pre_logits = []
-
-    model.eval()
-
-
-    with torch.no_grad():
-        for i in range(2):
-            for input, target in data_loader[i]['val']:
-                input = input.to(device, non_blocking=True)
-                target = target.to(device, non_blocking=True)
-
-                output = model(input)
-                embedding = output['embeddings']
-                pre_logit = output['pre_logits']
-                feature_embeddings.append(embedding.cpu())
-                targets.append(target.cpu())
-                pre_logits.append(pre_logit.cpu())
-
-    feature_embeddings = torch.cat(feature_embeddings, dim=0)
-    targets = torch.cat(targets, dim=0)
-    pre_logits = torch.cat(pre_logits, dim=0)
-
-    torch.save(feature_embeddings, os.path.join(args.output_dir, 'task2_feature_embeddings.pth'))
-    torch.save(targets, os.path.join(args.output_dir, 'task2_targets.pth'))
-    torch.save(pre_logits, os.path.join(args.output_dir, 'task2_pre_logits.pth'))
-
-    return
