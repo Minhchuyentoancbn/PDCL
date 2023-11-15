@@ -527,11 +527,9 @@ class VisionTransformer(nn.Module):
 
         # Classifier Head
         self.fc_norm = norm_layer(embed_dim) if use_fc_norm else nn.Identity()
-        self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
+        self.head = nn.Linear(self.embed_dim, 10) if num_classes > 0 else nn.Identity()
 
         print(f'Number of classes: {num_classes}')
-
-        self.task_head = nn.Linear(768, 10)
 
         if weight_init != 'skip':
             self.init_weights(weight_init)
@@ -674,7 +672,6 @@ class VisionTransformer(nn.Module):
         res['embeddings'] = x
 
         res['logits'] = self.head(x)
-        res['task_logits'] = self.task_head(x)
 
         return res
 
@@ -684,7 +681,6 @@ class VisionTransformer(nn.Module):
             x = self.mlp(x)
             x = self.fc_norm(x)
             res['logits'] = self.head(x)
-            res['task_logits'] = self.task_head(x)
             return res
         res = self.forward_features(x, task_id=task_id, prompt_id=prompt_id, prompt_weight=prompt_weight, train=train, prompt_momentum=prompt_momentum)
         res = self.forward_head(res)
