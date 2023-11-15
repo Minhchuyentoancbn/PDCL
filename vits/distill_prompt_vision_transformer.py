@@ -534,7 +534,6 @@ class VisionTransformer(nn.Module):
         if weight_init != 'skip':
             self.init_weights(weight_init)
 
-
     def init_weights(self, mode=''):
         assert mode in ('jax', 'jax_nlhb', 'moco', '')
         head_bias = -math.log(self.num_classes) if 'nlhb' in mode else 0.
@@ -687,20 +686,20 @@ class VisionTransformer(nn.Module):
 
     def get_query(self, x):
         res = dict()
-        with torch.no_grad():
-            x = self.patch_embed(x)
+        x = self.patch_embed(x)
 
-            if self.cls_token is not None:
-                x = torch.cat((self.cls_token.expand(x.shape[0], -1, -1), x), dim=1)
+        if self.cls_token is not None:
+            x = torch.cat((self.cls_token.expand(x.shape[0], -1, -1), x), dim=1)
 
-            x = self.pos_drop(x + self.pos_embed)
+        x = self.pos_drop(x + self.pos_embed)
 
-            if self.grad_checkpointing and not torch.jit.is_scripting():
-                x = checkpoint_seq(self.blocks, x)
-            else:
-                x = self.blocks(x)
-                x = self.norm(x)
-            x = x[:, 0]
+        if self.grad_checkpointing and not torch.jit.is_scripting():
+            x = checkpoint_seq(self.blocks, x)
+        else:
+            x = self.blocks(x)
+            x = self.norm(x)
+        
+        x = x[:, 0]
 
         res['features'] = x
 
