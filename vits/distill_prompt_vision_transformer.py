@@ -689,20 +689,20 @@ class VisionTransformer(nn.Module):
 
     def get_query(self, x):
         res = dict()
-        x = self.patch_embed(x)
+        with torch.no_grad():
+            x = self.patch_embed(x)
 
-        if self.cls_token is not None:
-            x = torch.cat((self.cls_token.expand(x.shape[0], -1, -1), x), dim=1)
+            if self.cls_token is not None:
+                x = torch.cat((self.cls_token.expand(x.shape[0], -1, -1), x), dim=1)
 
-        x = self.pos_drop(x + self.pos_embed)
+            x = self.pos_drop(x + self.pos_embed)
 
-        if self.grad_checkpointing and not torch.jit.is_scripting():
-            x = checkpoint_seq(self.blocks, x)
-        else:
-            x = self.blocks(x)
-            x = self.norm(x)
-        
-        x = x[:, 0]
+            if self.grad_checkpointing and not torch.jit.is_scripting():
+                x = checkpoint_seq(self.blocks, x)
+            else:
+                x = self.blocks(x)
+                x = self.norm(x)
+            x = x[:, 0]
 
         res['features'] = x
 
