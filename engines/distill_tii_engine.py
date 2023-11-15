@@ -125,7 +125,7 @@ def evaluate(model: torch.nn.Module, data_loader,
             metric_logger.meters['Acc@5'].update(acc5.item(), n=input.shape[0])
 
             task_id_preds = torch.max(logits, dim=1)[1]
-            # task_id_preds = torch.tensor([target_task_map[v.item()] for v in task_id_preds]).to(device)
+            task_id_preds = torch.tensor([target_task_map[v.item()] for v in task_id_preds]).to(device)
             batch_size = input.shape[0]
             tii_acc = torch.sum(task_id_preds == task_id) / batch_size
             metric_logger.meters['TII Acc'].update(tii_acc.item(), n=batch_size)
