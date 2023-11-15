@@ -8,6 +8,7 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.distributed as dist
 import numpy as np
 
@@ -64,8 +65,8 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
 
             main_loss = criterion(logits, target)
             feature_loss = feature_criterion(features, pretrained_features)
-            logits_loss = logits_criterion(nn.functional.log_softmax(logits[:, mask], dim=1),
-                                           nn.functional.softmax(pretrained_logits[:, mask], dim=1))
+            logits_loss = logits_criterion(F.log_softmax(logits[:, mask], dim=1),
+                                           F.softmax(pretrained_logits[:, mask], dim=1))
 
             loss = main_loss + feature_loss * args.auxillary_loss_lambda1 + logits_loss * args.auxillary_loss_lambda2
         else:
