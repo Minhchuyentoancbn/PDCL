@@ -133,7 +133,10 @@ def evaluate(model: torch.nn.Module, data_loader,
 
             output = model(input)
             logits = output['logits']
-            task_logits = output['task_logits']
+            
+            #############
+            target = torch.tensor([target_task_map[v.item()] for v in target]).to(device)
+            #############
 
             # here is the trick to mask out classes of non-current tasks
             if args.task_inc and class_mask is not None:
@@ -150,10 +153,8 @@ def evaluate(model: torch.nn.Module, data_loader,
             metric_logger.meters['Acc@1'].update(acc1.item(), n=input.shape[0])
             metric_logger.meters['Acc@5'].update(acc5.item(), n=input.shape[0])
 
-            # task_id_preds = torch.max(logits, dim=1)[1]
+            task_id_preds = torch.max(logits, dim=1)[1]
             # task_id_preds = torch.tensor([target_task_map[v.item()] for v in task_id_preds]).to(device)
-            task_id_preds = torch.max(task_logits, dim=1)[1]
-            print(task_id_preds)
             batch_size = input.shape[0]
             tii_acc = torch.sum(task_id_preds == task_id) / batch_size
             metric_logger.meters['TII Acc'].update(tii_acc.item(), n=batch_size)
@@ -365,7 +366,6 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
     run_epochs = args.crct_epochs
     crct_num = 0
     param_list = [p for p in model.parameters() if p.requires_grad]
-    # param_list = model.task_head.parameters()
     print('-' * 20)
     print('Learnable parameters:')
     for name, p in model.named_parameters():
@@ -442,8 +442,7 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
             inp = inputs[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
             tgt = targets[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
             outputs = model(inp, fc_only=True)
-            # logits = outputs['logits']
-            task_logtis = outputs['task_logits']
+            logits = outputs['logits']
 
             # if args.train_mask and class_mask is not None:
             #     mask = []
@@ -457,13 +456,11 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
             mask = list(range(task_id + 1))
             not_mask = np.setdiff1d(np.arange(args.num_tasks), mask)
             not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
-            task_logtis = task_logtis.index_fill(dim=1, index=not_mask, value=float('-inf'))
+            logtis = logtis.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-            loss = criterion(task_logtis, tgt)
-            acc1, acc5 = accuracy(task_logtis, tgt, topk=(1, 5))
 
-            # loss = criterion(logits, tgt)  # base criterion (CrossEntropyLoss)
-            # acc1, acc5 = accuracy(logits, tgt, topk=(1, 5))
+            loss = criterion(logits, tgt)  # base criterion (CrossEntropyLoss)
+            acc1, acc5 = accuracy(logits, tgt, topk=(1, 5))
 
             if not math.isfinite(loss.item()):
                 print("Loss is {}, stopping training".format(loss.item()))
