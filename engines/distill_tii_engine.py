@@ -37,7 +37,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
 
 
     for input, target in metric_logger.log_every(data_loader, args.print_freq, header):
-        input = input.to(device, non_blocking=True)
+        input = input.to(device)
         # target = target.to(device, non_blocking=True)
 
         output = model(input)
