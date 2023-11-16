@@ -383,12 +383,6 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
 
                     sampled_label.extend([c_id] * num_sampled_pcls)
 
-
-                    masks = torch.zeros((num_sampled_pcls, args.nb_classes))
-                    masks[:, class_mask[i]] = 1
-                    masks[:, c_id] = 0
-                    sampled_masks.append(masks)
-
         elif args.ca_storage_efficient_method == 'multi-centroid':
             for i in range(task_id + 1):
                 for c_id in class_mask[i]:
@@ -402,10 +396,6 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
                         sampled_data.append(sampled_data_single)
                         sampled_label.extend([c_id] * num_sampled_pcls)
 
-                        masks = torch.zeros((num_sampled_pcls, args.nb_classes))
-                        masks[:, class_mask[i]] = 1
-                        masks[:, c_id] = 0
-                        sampled_masks.append(masks)
         else:
             raise NotImplementedError
 
@@ -420,13 +410,11 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
         sf_indexes = torch.randperm(inputs.size(0))
         inputs = inputs[sf_indexes]
         targets = targets[sf_indexes]
-        sampled_masks = sampled_masks[sf_indexes]
         #print(targets)
 
         for _iter in range(crct_num):
             inp = inputs[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
             tgt = targets[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
-            sampled_mask = sampled_masks[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
             outputs = model(inp, fc_only=True)
             logits = outputs['logits']
 
@@ -438,10 +426,6 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
                 not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
                 not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
                 logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
-
-                logits_mask = sampled_mask * float('-inf')
-                logits_mask[logits_mask != logits_mask] = 0  # Fill nan with 0
-                logits = logits + logits_mask
 
 
 
