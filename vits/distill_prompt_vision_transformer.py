@@ -626,7 +626,6 @@ class VisionTransformer(nn.Module):
                             if (not full_prompt) and self.auxillary_prompt:
                                 # Use half of the prompt
                                 g_prompt = g_prompt[:, :, :self.g_prompt_length]
-                            print(g_prompt.shape)
                         else:
                             g_prompt_counter += 1
                             # Pommpt tunning, [B, g_prompt_length, embed_dim]
