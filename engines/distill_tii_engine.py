@@ -85,19 +85,22 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
                 param.grad.data *= (1. / args.auxillary_loss_lambda1)
             optimizer.step()
             center_optimizer.step()
+
+            if not math.isfinite(loss.item()):
+                print("Loss is {}, stopping training".format(loss.item()))
+                sys.exit(1)
         else:
             loss = criterion(logits, target)
+            optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+            optimizer.step()
+
+            if not math.isfinite(loss.item()):
+                print("Loss is {}, stopping training".format(loss.item()))
+                sys.exit(1)
 
         acc1, acc5 = accuracy(logits, target, topk=(1, 5))
-
-        if not math.isfinite(loss.item()):
-            print("Loss is {}, stopping training".format(loss.item()))
-            sys.exit(1)
-
-        optimizer.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
-        optimizer.step()
 
         torch.cuda.synchronize()
         metric_logger.update(Loss=loss.item())
