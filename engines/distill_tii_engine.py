@@ -48,28 +48,43 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
             logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
         if args.use_auxillary_head:
-            features = output['features']
+            # features = output['features']
 
-            pretrained_res = model.get_query(input)
-            pretrained_features = pretrained_res['features']
-            pretrained_logits = pretrained_res['logits']
+            # pretrained_res = model.get_query(input)
+            # pretrained_features = pretrained_res['features']
+            # pretrained_logits = pretrained_res['logits']
 
-            if args.train_mask and class_mask is not None:
-                pretrained_logits = pretrained_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+            # if args.train_mask and class_mask is not None:
+            #     pretrained_logits = pretrained_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-            feature_criterion = nn.L1Loss()
-            logits_criterion = nn.KLDivLoss(reduction='batchmean')
+            # feature_criterion = nn.L1Loss()
+            # logits_criterion = nn.KLDivLoss(reduction='batchmean')
+
+            # main_loss = criterion(logits, target)
+            # feature_loss = feature_criterion(features, pretrained_features)
+            # logits_loss = logits_criterion(nn.functional.log_softmax(logits[:, mask], dim=1),
+            #                                nn.functional.softmax(pretrained_logits[:, mask], dim=1))
+
+            # if not math.isfinite(logits_loss.item()):
+            #     print("Logits loss is {}, stopping training".format(logits_loss.item()))
+            #     sys.exit(1)
+
+            # loss = main_loss + feature_loss * args.auxillary_loss_lambda1 + logits_loss * args.auxillary_loss_lambda2
 
             main_loss = criterion(logits, target)
-            feature_loss = feature_criterion(features, pretrained_features)
-            logits_loss = logits_criterion(nn.functional.log_softmax(logits[:, mask], dim=1),
-                                           nn.functional.softmax(pretrained_logits[:, mask], dim=1))
+            features = output['features']
+            batch_size = input.shape[0]
+            target_task = torch.tensor([task_id] * batch_size).to(device)
+            center_loss = center_criterion(features, target_task)
+            loss = main_loss + center_loss * args.auxillary_loss_lambda1
 
-            if not math.isfinite(logits_loss.item()):
-                print("Logits loss is {}, stopping training".format(logits_loss.item()))
-                sys.exit(1)
-
-            loss = main_loss + feature_loss * args.auxillary_loss_lambda1 + logits_loss * args.auxillary_loss_lambda2
+            optimizer.zero_grad()
+            center_optimizer.zero_grad()
+            loss.backward()
+            for param in center_criterion.parameters():
+                param.grad.data *= (1. / args.auxillary_loss_lambda1)
+            optimizer.step()
+            center_optimizer.step()
         else:
             loss = criterion(logits, target)
 
@@ -246,6 +261,11 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
     global cls_cov
     cls_mean = dict()
     cls_cov = dict()
+
+    global center_criterion
+    global center_optimizer
+    center_criterion = CenterLoss(args.num_tasks, 768)
+    center_optimizer = optim.SGD(center_criterion.parameters(), lr=0.5)
 
     for task_id in range(args.num_tasks):
 
@@ -470,3 +490,38 @@ def compute_confusion_matrix(model: torch.nn.Module, data_loader,
     print(f'TII Acc: {np.trace(confusion_matrix) / np.sum(confusion_matrix)}')
 
     return confusion_matrix
+
+
+class CenterLoss(nn.Module):
+    """
+    Center Loss
+    """
+
+    def __init__(self, num_classes:int=10544, feat_dim:int=512):
+        """
+        Parameters
+        ----------
+        num_classes: int
+            number of classes
+
+        feat_dim: int
+            feature dimension
+        """
+        super(CenterLoss, self).__init__()
+        self.num_classes = num_classes
+        self.feat_dim = feat_dim
+
+        self.centers = nn.Parameter(torch.randn(self.num_classes, self.feat_dim))
+
+
+    def forward(self, x, labels):
+        batch_size = labels.size(0)
+        distmat = torch.pow(x, 2).sum(dim=1, keepdim=True).expand(batch_size, self.num_classes) + \
+                  torch.pow(self.centers, 2).sum(dim=1, keepdim=True).expand(self.num_classes, batch_size).t()  # (batch_size, num_classes)
+        distmat.addmm_(x, self.centers.t(), beta=1, alpha=-2)
+        classes = torch.arange(self.num_classes).long().to(labels.device)
+        labels = labels.unsqueeze(1).expand(batch_size, self.num_classes)
+        mask = labels.eq(classes.expand(batch_size, self.num_classes))
+        dist = distmat * mask.float()
+        loss = dist.clamp(min=1e-12, max=1e+12).sum() / batch_size
+        return loss
