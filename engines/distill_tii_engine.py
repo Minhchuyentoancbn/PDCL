@@ -55,21 +55,21 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
             features = output['features']
 
             pretrained_res = model.get_query(input)
-            pretrained_features = pretrained_res['features']
-            # pretrained_logits = pretrained_res['logits']
+            # pretrained_features = pretrained_res['features']
+            pretrained_logits = pretrained_res['logits']
 
-            # if args.train_mask and class_mask is not None:
-            #     pretrained_logits = pretrained_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+            if args.train_mask and class_mask is not None:
+                pretrained_logits = pretrained_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-            feature_criterion = nn.L1Loss()
-            # logits_criterion = nn.KLDivLoss(reduction='batchmean')
+            # feature_criterion = nn.L1Loss()
+            logits_criterion = nn.KLDivLoss(reduction='batchmean')
 
             main_loss = criterion(logits, target)
-            feature_loss = feature_criterion(features, pretrained_features)
-            # logits_loss = logits_criterion(nn.functional.log_softmax(logits[:, mask], dim=1),
-            #                                nn.functional.softmax(pretrained_logits[:, mask], dim=1))
+            # feature_loss = feature_criterion(features, pretrained_features)
+            logits_loss = logits_criterion(nn.functional.log_softmax(logits[:, mask], dim=1),
+                                           nn.functional.softmax(pretrained_logits[:, mask], dim=1))
 
-            loss = main_loss + feature_loss * args.auxillary_loss_lambda1 # + logits_loss * args.auxillary_loss_lambda2
+            loss = main_loss + logits_loss * args.auxillary_loss_lambda2 #+ feature_loss * args.auxillary_loss_lambda1 # 
 
         else:
             loss = criterion(logits, target)
