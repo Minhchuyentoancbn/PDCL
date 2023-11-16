@@ -531,6 +531,8 @@ class VisionTransformer(nn.Module):
 
         print(f'Number of classes: {num_classes}')
 
+        self.auxillary_head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
+
         if weight_init != 'skip':
             self.init_weights(weight_init)
 
@@ -664,6 +666,8 @@ class VisionTransformer(nn.Module):
 
         res['pre_logits'] = x
         res['features'] = x
+
+        res['auxillary_logits'] = self.auxillary_head(x)
 
         x = self.mlp(x)
         x = self.fc_norm(x)

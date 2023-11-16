@@ -76,7 +76,12 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
             batch_size = input.shape[0]
             target_task = torch.tensor([task_id] * batch_size).to(device)
             center_loss = center_criterion(features, target_task)
-            loss = main_loss + center_loss * args.auxillary_loss_lambda1
+
+            auxillary_logits = output['auxillary_logits']
+            auxillary_logits = auxillary_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+            auxillary_loss = criterion(auxillary_logits, target)
+
+            loss = main_loss + center_loss * args.auxillary_loss_lambda1 + auxillary_loss
 
             optimizer.zero_grad()
             center_optimizer.zero_grad()
