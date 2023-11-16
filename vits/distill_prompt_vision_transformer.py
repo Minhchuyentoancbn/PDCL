@@ -386,7 +386,7 @@ class VisionTransformer(nn.Module):
             top_k=None, batchwise_prompt=False, prompt_key_init='uniform', head_type='token', use_prompt_mask=False,
             use_g_prompt=False, g_prompt_length=None, g_prompt_layer_idx=None, use_prefix_tune_for_g_prompt=False,
             use_e_prompt=False, e_prompt_layer_idx=None, use_prefix_tune_for_e_prompt=False, same_key_value=False,
-            mlp_structure=[], auxillary_prompt=False):
+            mlp_structure=[]):
         """
         Args:
             img_size (int, tuple): input image size
@@ -440,8 +440,6 @@ class VisionTransformer(nn.Module):
         self.prompt_pool = prompt_pool
         self.head_type = head_type
         self.use_prompt_mask = use_prompt_mask
-
-        self.auxillary_prompt = auxillary_prompt
 
         self.use_g_prompt = use_g_prompt
         self.g_prompt_layer_idx = g_prompt_layer_idx
@@ -537,10 +535,9 @@ class VisionTransformer(nn.Module):
 
         print(f'Number of classes: {num_classes}')
 
-        self.auxillary_head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
-
         if weight_init != 'skip':
             self.init_weights(weight_init)
+
 
     def init_weights(self, mode=''):
         assert mode in ('jax', 'jax_nlhb', 'moco', '')
@@ -584,7 +581,7 @@ class VisionTransformer(nn.Module):
             self.global_pool = global_pool
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
-    def forward_features(self, x, task_id=-1, prompt_id=None, prompt_weight=None, train=False, prompt_momentum=0, full_prompt=True):
+    def forward_features(self, x, task_id=-1, prompt_id=None, prompt_weight=None, train=False, prompt_momentum=0):
         x = self.patch_embed(x)
 
         if self.cls_token is not None:
@@ -623,9 +620,7 @@ class VisionTransformer(nn.Module):
                             # Prefix tunning, [B, 2, g_prompt_length, num_heads, embed_dim // num_heads]
                             idx = torch.tensor([g_prompt_counter] * x.shape[0]).to(x.device)
                             g_prompt = self.g_prompt[idx]
-                            if (not full_prompt) and self.auxillary_prompt:
-                                # Use half of the prompt
-                                g_prompt = g_prompt[:, :, :self.g_prompt_length]
+
                         else:
                             g_prompt_counter += 1
                             # Pommpt tunning, [B, g_prompt_length, embed_dim]
@@ -676,8 +671,6 @@ class VisionTransformer(nn.Module):
         res['pre_logits'] = x
         res['features'] = x
 
-        res['auxillary_logits'] = self.auxillary_head(x)
-
         x = self.mlp(x)
         x = self.fc_norm(x)
 
@@ -685,14 +678,14 @@ class VisionTransformer(nn.Module):
 
         return res
 
-    def forward(self, x, task_id=-1, prompt_id=None, prompt_weight=None, train=False, fc_only=False, prompt_momentum=0, full_prompt=True):
+    def forward(self, x, task_id=-1, prompt_id=None, prompt_weight=None, train=False, fc_only=False, prompt_momentum=0):
         if fc_only:
             res = dict()
             x = self.mlp(x)
             x = self.fc_norm(x)
             res['logits'] = self.head(x)
             return res
-        res = self.forward_features(x, task_id=task_id, prompt_id=prompt_id, prompt_weight=prompt_weight, train=train, prompt_momentum=prompt_momentum, full_prompt=full_prompt)
+        res = self.forward_features(x, task_id=task_id, prompt_id=prompt_id, prompt_weight=prompt_weight, train=train, prompt_momentum=prompt_momentum)
         res = self.forward_head(res)
         return res
     
