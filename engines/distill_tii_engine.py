@@ -39,7 +39,6 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
         output = model(input)
         logits = output['logits']
 
-
         # here is the trick to mask out classes of non-current tasks
         if args.train_mask and class_mask is not None:
             mask = class_mask[task_id]
@@ -528,10 +527,14 @@ def orth_loss(features, targets, device, args):
         sample_mean = torch.stack(sample_mean, dim=0).to(device, non_blocking=True)
         M = torch.cat([sample_mean, features], dim=0)
         sim = torch.matmul(M, M.t()) / 0.8
-        loss = torch.nn.functional.cross_entropy(sim, torch.range(0, sim.shape[0] - 1).long().to(device))
+        loss = torch.nn.functional.cross_entropy(sim, torch.arange(0, sim.shape[0] - 1).long().to(device))
+        print(sim.shape)
+        print(sim.shape[0] - 1)
         # print(loss)
         return args.reg * loss
     else:
         sim = torch.matmul(features, features.t()) / 0.8
-        loss = torch.nn.functional.cross_entropy(sim, torch.range(0, sim.shape[0] - 1).long().to(device))
+        print(sim.shape)
+        print(sim.shape[0] - 1)
+        loss = torch.nn.functional.cross_entropy(sim, torch.arange(0, sim.shape[0] - 1).long().to(device))
         return args.reg * loss
