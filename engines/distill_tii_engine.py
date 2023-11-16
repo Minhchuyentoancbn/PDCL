@@ -40,12 +40,12 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
         logits = output['logits']
 
 
-        # # here is the trick to mask out classes of non-current tasks
-        # if args.train_mask and class_mask is not None:
-        #     mask = class_mask[task_id]
-        #     not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
-        #     not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
-        #     logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+        # here is the trick to mask out classes of non-current tasks
+        if args.train_mask and class_mask is not None:
+            mask = class_mask[task_id]
+            not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
+            not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+            logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
         # if args.use_auxillary_head and full_prompt and args.auxillary_loss_lambda2 > 0:
         #     # features = output['features']
