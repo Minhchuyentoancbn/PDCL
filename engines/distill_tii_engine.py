@@ -300,12 +300,13 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
         #         lr_scheduler.step(epoch)
 
         for epoch in range(args.epochs):
-            train_stats = train_one_epoch(model=model, criterion=criterion,
-                                          data_loader=data_loader[task_id]['train'], optimizer=optimizer,
-                                          device=device, epoch=epoch, max_norm=args.clip_grad,
-                                          set_training_mode=True, task_id=task_id, class_mask=class_mask, args=args,
-                                          full_prompt=False
-                                          )
+            if args.auxillary_prompt:
+                train_stats = train_one_epoch(model=model, criterion=criterion,
+                                            data_loader=data_loader[task_id]['train'], optimizer=optimizer,
+                                            device=device, epoch=epoch, max_norm=args.clip_grad,
+                                            set_training_mode=True, task_id=task_id, class_mask=class_mask, args=args,
+                                            full_prompt=False
+                                            )
             # Train model
             train_stats = train_one_epoch(model=model, criterion=criterion,
                                           data_loader=data_loader[task_id]['train'], optimizer=optimizer,
