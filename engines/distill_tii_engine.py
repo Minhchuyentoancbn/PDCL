@@ -264,7 +264,7 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
 
     global center_criterion
     global center_optimizer
-    center_criterion = CenterLoss(args.num_tasks, 768)
+    center_criterion = CenterLoss(args.num_tasks, 768).to(device)
     center_optimizer = optim.SGD(center_criterion.parameters(), lr=0.5)
 
     for task_id in range(args.num_tasks):
