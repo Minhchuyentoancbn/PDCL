@@ -47,28 +47,28 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
             not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
             logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-        # if args.use_auxillary_head and full_prompt and args.auxillary_loss_lambda2 > 0:
-        #     # features = output['features']
+        if args.use_auxillary_head and args.auxillary_loss_lambda2 > 0:
+            # features = output['features']
 
-        #     pretrained_res = model.get_query(input)
-        #     # pretrained_features = pretrained_res['features']
-        #     pretrained_logits = pretrained_res['logits']
+            pretrained_res = model.get_query(input)
+            # pretrained_features = pretrained_res['features']
+            pretrained_logits = pretrained_res['logits']
 
-        #     if args.train_mask and class_mask is not None:
-        #         pretrained_logits = pretrained_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+            if args.train_mask and class_mask is not None:
+                pretrained_logits = pretrained_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
         #     # feature_criterion = nn.L1Loss()
-        #     logits_criterion = nn.KLDivLoss(reduction='batchmean')
+            logits_criterion = nn.KLDivLoss(reduction='batchmean')
 
-        #     main_loss = criterion(logits, target)
+            main_loss = criterion(logits, target)
         #     # feature_loss = feature_criterion(features, pretrained_features)
-        #     logits_loss = logits_criterion(nn.functional.log_softmax(logits[:, mask], dim=1),
-        #                                    nn.functional.softmax(pretrained_logits[:, mask], dim=1))
+            logits_loss = logits_criterion(nn.functional.log_softmax(logits[:, mask], dim=1),
+                                           nn.functional.softmax(pretrained_logits[:, mask], dim=1))
 
-        #     loss = main_loss + logits_loss * args.auxillary_loss_lambda2 #+ feature_loss * args.auxillary_loss_lambda1 # 
+            loss = main_loss + logits_loss * args.auxillary_loss_lambda2 #+ feature_loss * args.auxillary_loss_lambda1 # 
 
-        # else:
-        #     loss = criterion(logits, target)
+        else:
+            loss = criterion(logits, target)
 
         # optimizer.zero_grad()
         # loss.backward()
@@ -79,7 +79,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
         #     print("Loss is {}, stopping training".format(loss.item()))
         #     sys.exit(1)
 
-        loss = criterion(logits, target)
+        # loss = criterion(logits, target)
         if args.contrastive_loss:
             loss += orth_loss(output['pre_logits'], target, device, args)
 
@@ -363,7 +363,6 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
 
         sampled_data = []
         sampled_label = []
-        sampled_masks = []
         num_sampled_pcls = args.batch_size
 
         metric_logger = utils.MetricLogger(delimiter="  ")
@@ -402,7 +401,6 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
 
         sampled_data = torch.cat(sampled_data, dim=0).float().to(device)
         sampled_label = torch.tensor(sampled_label).long().to(device)
-        sampled_masks = torch.cat(sampled_masks, dim=0).float().to(device)
 
         inputs = sampled_data
         targets = sampled_label
