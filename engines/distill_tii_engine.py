@@ -438,7 +438,13 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
                 not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
                 not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
                 logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
-                logits = logits + sampled_mask * float('-inf')
+                logits_mask = torch.zeros_like(logits, device=device)
+                # Fill logits_mask with -inf for sampled mask
+                logits_mask = logits_mask.index_fill(1, sampled_mask.nonzero(as_tuple=False)[:, 1], float('-inf'))
+                logits = logits + logits_mask
+
+
+
 
             loss = criterion(logits, tgt)  # base criterion (CrossEntropyLoss)
             acc1, acc5 = accuracy(logits, tgt, topk=(1, 5))
