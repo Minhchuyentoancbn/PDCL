@@ -21,7 +21,7 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 
 def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, max_norm: float = 0,
-                    set_training_mode=True, task_id=-1, class_mask=None, args=None, ):
+                    set_training_mode=True, task_id=-1, class_mask=None, args=None, full_prompt=False):
     model.train(set_training_mode)
 
     if args.distributed and utils.get_world_size() > 1:
@@ -36,8 +36,12 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
         input = input.to(device, non_blocking=True)
         target = target.to(device, non_blocking=True)
 
-        output = model(input)
-        logits = output['logits']
+        output = model(input, full_prompt=full_prompt)
+
+        if args.use_auxillary_head and not full_prompt:
+            logits = output['auxillary_logits']
+        else:
+            logits = output['logits']
 
 
         # here is the trick to mask out classes of non-current tasks
@@ -47,7 +51,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
             not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
             logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-        if args.use_auxillary_head:
+        # if args.use_auxillary_head:
             # features = output['features']
 
             # pretrained_res = model.get_query(input)
@@ -71,51 +75,27 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
 
             # loss = main_loss + feature_loss * args.auxillary_loss_lambda1 + logits_loss * args.auxillary_loss_lambda2
 
-            main_loss = criterion(logits, target)
-            features = output['features']
-            batch_size = input.shape[0]
-            target_task = torch.tensor([task_id] * batch_size).to(device)
-            center_loss = center_criterion(features, target_task)
+            # main_loss = criterion(logits, target)
+        # else:
+            # loss = criterion(logits, target)
+            # optimizer.zero_grad()
+            # loss.backward()
+            # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+            # optimizer.step()
 
-            auxillary_logits = output['auxillary_logits']
-            auxillary_logits = auxillary_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
-            auxillary_loss = criterion(auxillary_logits, target)
+            # if not math.isfinite(loss.item()):
+            #     print("Loss is {}, stopping training".format(loss.item()))
+            #     sys.exit(1)
 
-            loss = main_loss + center_loss * args.auxillary_loss_lambda1 + auxillary_loss
+        loss = criterion(logits, target)
+        optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+        optimizer.step()
 
-            optimizer.zero_grad()
-            center_optimizer.zero_grad()
-            
-
-            if task_id > 0:
-                previous_center_loss = 0
-                for i in range(task_id):
-                    previous_center_loss += center_criterion(features, torch.tensor([i] * batch_size).to(device)) * args.auxillary_loss_lambda2
-                
-                (-previous_center_loss).backward(retain_graph=True)
-                for param in center_criterion.parameters():
-                    param.grad.data *= 0
-                
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
-            for param in center_criterion.parameters():
-                param.grad.data *= (1. / args.auxillary_loss_lambda1)
-            optimizer.step()
-            center_optimizer.step()
-
-            if not math.isfinite(loss.item()):
-                print("Loss is {}, stopping training".format(loss.item()))
-                sys.exit(1)
-        else:
-            loss = criterion(logits, target)
-            optimizer.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
-            optimizer.step()
-
-            if not math.isfinite(loss.item()):
-                print("Loss is {}, stopping training".format(loss.item()))
-                sys.exit(1)
+        if not math.isfinite(loss.item()):
+            print("Loss is {}, stopping training".format(loss.item()))
+            sys.exit(1)
 
         acc1, acc5 = accuracy(logits, target, topk=(1, 5))
 
@@ -282,11 +262,6 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
     cls_mean = dict()
     cls_cov = dict()
 
-    global center_criterion
-    global center_optimizer
-    center_criterion = CenterLoss(args.num_tasks, 768).to(device)
-    center_optimizer = optim.SGD(center_criterion.parameters(), lr=0.5)
-
     for task_id in range(args.num_tasks):
 
         # Create new optimizer for each task to clear optimizer status
@@ -299,12 +274,27 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
 
         for epoch in range(args.epochs):
             # Train model
+            print('-' * 20)
+            print('Training auxillary head with only half of the prompt')
+            train_stats = train_one_epoch(model=model, criterion=criterion,
+                                            data_loader=data_loader[task_id]['train'], optimizer=optimizer,
+                                            device=device, epoch=epoch, max_norm=args.clip_grad,
+                                            set_training_mode=True, task_id=task_id, class_mask=class_mask, args=args,
+                                            full_prompt=False)
+                                            
+            print('-' * 20)
+
+        for epoch in range(args.epochs):
+            # Train model
+            print('-' * 20)
+            print('Training with full prompt')
             train_stats = train_one_epoch(model=model, criterion=criterion,
                                           data_loader=data_loader[task_id]['train'], optimizer=optimizer,
                                           device=device, epoch=epoch, max_norm=args.clip_grad,
                                           set_training_mode=True, task_id=task_id, class_mask=class_mask, args=args,
+                                            full_prompt=True
                                           )
-                                        
+            print('-' * 20)
 
             if lr_scheduler:
                 lr_scheduler.step(epoch)
