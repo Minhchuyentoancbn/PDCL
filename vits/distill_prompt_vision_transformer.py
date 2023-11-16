@@ -584,7 +584,7 @@ class VisionTransformer(nn.Module):
             self.global_pool = global_pool
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
-    def forward_features(self, x, task_id=-1, prompt_id=None, prompt_weight=None, train=False, prompt_momentum=0, full_prompt=False):
+    def forward_features(self, x, task_id=-1, prompt_id=None, prompt_weight=None, train=False, prompt_momentum=0, full_prompt=True):
         x = self.patch_embed(x)
 
         if self.cls_token is not None:
@@ -626,6 +626,7 @@ class VisionTransformer(nn.Module):
                             if (not full_prompt) and self.auxillary_prompt:
                                 # Use half of the prompt
                                 g_prompt = g_prompt[:, :, :self.g_prompt_length]
+                            print(g_prompt.shape)
                         else:
                             g_prompt_counter += 1
                             # Pommpt tunning, [B, g_prompt_length, embed_dim]
