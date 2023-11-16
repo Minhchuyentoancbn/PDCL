@@ -51,8 +51,8 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
             not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
             logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-        if args.auxillary_prompt and full_prompt:
-            features = output['features']
+        if args.auxillary_prompt and full_prompt and args.auxillary_loss_lambda2 > 0:
+            # features = output['features']
 
             pretrained_res = model.get_query(input)
             # pretrained_features = pretrained_res['features']
