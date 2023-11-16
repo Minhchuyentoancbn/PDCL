@@ -439,9 +439,8 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
                 not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
                 logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-                logits_mask = sampled_data * float('-inf')
-                # Fill nan with 0
-                logits_mask[logits_mask != logits_mask] = 0
+                logits_mask = sampled_mask * float('-inf')
+                logits_mask[logits_mask != logits_mask] = 0  # Fill nan with 0
                 logits = logits + logits_mask
 
 
