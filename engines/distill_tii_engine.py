@@ -527,6 +527,7 @@ def orth_loss(features, targets, device, args):
                 sample_mean.append(v)
         sample_mean = torch.stack(sample_mean, dim=0).to(device, non_blocking=True)
         M = torch.cat([sample_mean, features], dim=0)
+        M = F.normalize(M, dim=1)
         sim = torch.matmul(M, M.t()) / 0.8
         sim_logits = F.log_softmax(sim, dim=1)
         loss = sim_logits[sample_mean.shape[0]:, :sample_mean.shape[0]].mean()
