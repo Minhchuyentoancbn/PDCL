@@ -81,7 +81,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
 
         loss = criterion(logits, target)
         if args.contrastive_loss:
-            loss -= orth_loss(output['pre_logits'], target, device, args)
+            loss += orth_loss(output['pre_logits'], target, device, args)
 
         optimizer.zero_grad()
         loss.backward()
