@@ -87,7 +87,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
                 for i in range(task_id):
                     previous_center_loss += center_criterion(features, torch.tensor([i] * batch_size).to(device)) * args.auxillary_loss_lambda2
                 
-                previous_center_loss.backward(retain_graph=True)
+                (-previous_center_loss).backward(retain_graph=True)
                 for param in center_criterion.parameters():
                     param.grad.data *= 0
                 
