@@ -386,7 +386,7 @@ class VisionTransformer(nn.Module):
             top_k=None, batchwise_prompt=False, prompt_key_init='uniform', head_type='token', use_prompt_mask=False,
             use_g_prompt=False, g_prompt_length=None, g_prompt_layer_idx=None, use_prefix_tune_for_g_prompt=False,
             use_e_prompt=False, e_prompt_layer_idx=None, use_prefix_tune_for_e_prompt=False, same_key_value=False,
-            mlp_structure=[]):
+            mlp_structure=[], auxillary_prompt=False):
         """
         Args:
             img_size (int, tuple): input image size
@@ -441,8 +441,11 @@ class VisionTransformer(nn.Module):
         self.head_type = head_type
         self.use_prompt_mask = use_prompt_mask
 
+        self.auxillary_prompt = auxillary_prompt
+
         self.use_g_prompt = use_g_prompt
         self.g_prompt_layer_idx = g_prompt_layer_idx
+        self.g_prompt_length = g_prompt_length
         # num_g_prompt : The actual number of layers to which g-prompt is attached.
         # In official code, create as many layers as the total number of layers and select them based on the index
         num_g_prompt = len(self.g_prompt_layer_idx) if self.g_prompt_layer_idx is not None else 0
@@ -475,7 +478,10 @@ class VisionTransformer(nn.Module):
                         nn.init.uniform_(self.g_prompt, -1, 1)
                     self.g_prompt = self.g_prompt.repeat(1, 2, 1, 1, 1)
                 else:
-                    g_prompt_shape = (num_g_prompt, 2, g_prompt_length, num_heads, embed_dim // num_heads)
+                    if self.auxillary_prompt:
+                        g_prompt_shape = (num_g_prompt, 2, g_prompt_length * 2, num_heads, embed_dim // num_heads)
+                    else:
+                        g_prompt_shape = (num_g_prompt, 2, g_prompt_length, num_heads, embed_dim // num_heads)
                     if prompt_init == 'zero':
                         self.g_prompt = nn.Parameter(torch.zeros(g_prompt_shape))
                     elif prompt_init == 'uniform':
@@ -578,7 +584,7 @@ class VisionTransformer(nn.Module):
             self.global_pool = global_pool
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
-    def forward_features(self, x, task_id=-1, prompt_id=None, prompt_weight=None, train=False, prompt_momentum=0):
+    def forward_features(self, x, task_id=-1, prompt_id=None, prompt_weight=None, train=False, prompt_momentum=0, full_prompt=False):
         x = self.patch_embed(x)
 
         if self.cls_token is not None:
@@ -617,6 +623,9 @@ class VisionTransformer(nn.Module):
                             # Prefix tunning, [B, 2, g_prompt_length, num_heads, embed_dim // num_heads]
                             idx = torch.tensor([g_prompt_counter] * x.shape[0]).to(x.device)
                             g_prompt = self.g_prompt[idx]
+                            if (not full_prompt) and self.auxillary_prompt:
+                                # Use half of the prompt
+                                g_prompt = g_prompt[:, :, :self.g_prompt_length]
                         else:
                             g_prompt_counter += 1
                             # Pommpt tunning, [B, g_prompt_length, embed_dim]
@@ -676,14 +685,14 @@ class VisionTransformer(nn.Module):
 
         return res
 
-    def forward(self, x, task_id=-1, prompt_id=None, prompt_weight=None, train=False, fc_only=False, prompt_momentum=0):
+    def forward(self, x, task_id=-1, prompt_id=None, prompt_weight=None, train=False, fc_only=False, prompt_momentum=0, full_prompt=True):
         if fc_only:
             res = dict()
             x = self.mlp(x)
             x = self.fc_norm(x)
             res['logits'] = self.head(x)
             return res
-        res = self.forward_features(x, task_id=task_id, prompt_id=prompt_id, prompt_weight=prompt_weight, train=train, prompt_momentum=prompt_momentum)
+        res = self.forward_features(x, task_id=task_id, prompt_id=prompt_id, prompt_weight=prompt_weight, train=train, prompt_momentum=prompt_momentum, full_prompt=full_prompt)
         res = self.forward_head(res)
         return res
     
