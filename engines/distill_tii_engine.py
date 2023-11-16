@@ -8,6 +8,7 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.distributed as dist
 import numpy as np
 
@@ -527,7 +528,8 @@ def orth_loss(features, targets, device, args):
         sample_mean = torch.stack(sample_mean, dim=0).to(device, non_blocking=True)
         M = torch.cat([sample_mean, features], dim=0)
         sim = torch.matmul(M, M.t()) / 0.8
-        loss = torch.nn.functional.cross_entropy(sim, torch.arange(sim.shape[0]).long().to(device))
+        sim_logits = F.log_softmax(sim, dim=1)
+        loss = sim_logits[sample_mean.shape[0]:, :sample_mean.shape[0]].mean()
         # print(loss)
         return args.reg * loss
     else:
