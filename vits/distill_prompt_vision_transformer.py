@@ -476,10 +476,7 @@ class VisionTransformer(nn.Module):
                         nn.init.uniform_(self.g_prompt, -1, 1)
                     self.g_prompt = self.g_prompt.repeat(1, 2, 1, 1, 1)
                 else:
-                    if self.auxillary_prompt:
-                        g_prompt_shape = (num_g_prompt, 2, g_prompt_length * 2, num_heads, embed_dim // num_heads)
-                    else:
-                        g_prompt_shape = (num_g_prompt, 2, g_prompt_length, num_heads, embed_dim // num_heads)
+                    g_prompt_shape = (num_g_prompt, 2, g_prompt_length, num_heads, embed_dim // num_heads)
                     if prompt_init == 'zero':
                         self.g_prompt = nn.Parameter(torch.zeros(g_prompt_shape))
                     elif prompt_init == 'uniform':
