@@ -154,6 +154,7 @@ def get_args_parser(subparsers):
     subparsers.add_argument('--print_freq', type=int, default=10, help='The frequency of printing')
 
     # Auxillary parameters
+    subparsers.add_argument('--contrastive_loss', action='store_true', help='if using contrastive loss')
     subparsers.add_argument('--use_auxillary_head', action='store_true', help='if using auxillary head')
     subparsers.add_argument('--auxillary_loss_lambda1', default=1.0, type=float, help='auxillary_loss_weight')
     subparsers.add_argument('--auxillary_loss_lambda2', default=1.0, type=float, help='auxillary_loss_weight')

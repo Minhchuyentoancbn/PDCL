@@ -80,6 +80,9 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
         #     sys.exit(1)
 
         loss = criterion(logits, target)
+        if args.contrastive_loss:
+            loss += orth_loss(output['pre_logits'], target, device, args)
+
         optimizer.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
@@ -511,3 +514,24 @@ class CenterLoss(nn.Module):
         dist = distmat * mask.float()
         loss = dist.clamp(min=1e-12, max=1e+12).sum() / batch_size
         return loss
+    
+
+def orth_loss(features, targets, device, args):
+    if cls_mean:
+        # orth loss of this batch
+        sample_mean = []
+        for k, v in cls_mean.items():
+            if isinstance(v, list):
+                sample_mean.extend(v)
+            else:
+                sample_mean.append(v)
+        sample_mean = torch.stack(sample_mean, dim=0).to(device, non_blocking=True)
+        M = torch.cat([sample_mean, features], dim=0)
+        sim = torch.matmul(M, M.t()) / 0.8
+        loss = torch.nn.functional.cross_entropy(sim, torch.range(0, sim.shape[0] - 1).long().to(device))
+        # print(loss)
+        return args.reg * loss
+    else:
+        sim = torch.matmul(features, features.t()) / 0.8
+        loss = torch.nn.functional.cross_entropy(sim, torch.range(0, sim.shape[0] - 1).long().to(device))
+        return args.reg * loss
