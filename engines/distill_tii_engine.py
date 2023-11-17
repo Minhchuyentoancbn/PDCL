@@ -70,12 +70,6 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
         else:
             loss = criterion(logits, target)
 
-        if args.use_auxillary_head:
-            aux_logits = output['aux_logits']
-            if args.train_mask and class_mask is not None:
-                aux_logits = aux_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
-            aux_loss = criterion(aux_logits, target)
-            loss += aux_loss * args.auxillary_loss_lambda1
 
         # optimizer.zero_grad()
         # loss.backward()
