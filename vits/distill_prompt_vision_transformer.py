@@ -669,6 +669,8 @@ class VisionTransformer(nn.Module):
 
         res['pre_logits'] = x
         res['features'] = x
+        
+        res['aux_logits'] = self.auxillary_head(x)
 
         x = self.mlp(x)
         x = self.fc_norm(x)
@@ -707,7 +709,6 @@ class VisionTransformer(nn.Module):
         x = x[:, 0]
 
         res['features'] = x
-        res['aux_logits'] = self.auxillary_head(x)
 
         x = self.mlp(x)
         x = self.fc_norm(x)
