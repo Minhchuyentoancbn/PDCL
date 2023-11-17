@@ -58,7 +58,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
             num_sampled_pcls = 1
 
             if args.ca_storage_efficient_method in ['covariance', 'variance']:
-                for i in range(task_id + 1):
+                for i in range(task_id):
                     for c_id in class_mask[i]:
                         mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
                         cov = cls_cov[c_id].to(device)
@@ -71,7 +71,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
                         sampled_label.extend([c_id] * num_sampled_pcls)
 
             elif args.ca_storage_efficient_method == 'multi-centroid':
-                for i in range(task_id + 1):
+                for i in range(task_id):
                     for c_id in class_mask[i]:
                         for cluster in range(len(cls_mean[c_id])):
                             mean = cls_mean[c_id][cluster]
