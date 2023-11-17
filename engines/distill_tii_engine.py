@@ -490,41 +490,41 @@ def compute_confusion_matrix(model: torch.nn.Module, data_loader,
 def orth_loss(features, targets, device, args):
     if cls_mean:
         # orth loss of this batch
-        sampled_data = []
-        if args.ca_storage_efficient_method in ['covariance', 'variance']:
-            for k, v in cls_mean.items():
-                mean = torch.tensor(v, dtype=torch.float64).to(device)
-                cov = cls_cov[k].to(device)
-                if args.ca_storage_efficient_method == 'variance':
-                    cov = torch.diag(cov)
-                m = MultivariateNormal(mean.float(), cov.float())
-                sampled_data_single = m.sample(sample_shape=(1,))
-                sampled_data.append(sampled_data_single)
-        elif args.ca_storage_efficient_method == 'multi-centroid':
-            for k, v in cls_mean.items():
-                for cluster in range(len(v)):
-                    mean = v[cluster]
-                    var = cls_cov[k][cluster]
-                    if var.mean() == 0:
-                        continue
-                    m = MultivariateNormal(mean.float(), (torch.diag(var) + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)).float())
-                    sampled_data_single = m.sample(sample_shape=(1,))
-                    sampled_data.append(sampled_data_single)
+        # sampled_data = []
+        # if args.ca_storage_efficient_method in ['covariance', 'variance']:
+        #     for k, v in cls_mean.items():
+        #         mean = torch.tensor(v, dtype=torch.float64).to(device)
+        #         cov = cls_cov[k].to(device)
+        #         if args.ca_storage_efficient_method == 'variance':
+        #             cov = torch.diag(cov)
+        #         m = MultivariateNormal(mean.float(), cov.float())
+        #         sampled_data_single = m.sample(sample_shape=(1,))
+        #         sampled_data.append(sampled_data_single)
+        # elif args.ca_storage_efficient_method == 'multi-centroid':
+        #     for k, v in cls_mean.items():
+        #         for cluster in range(len(v)):
+        #             mean = v[cluster]
+        #             var = cls_cov[k][cluster]
+        #             if var.mean() == 0:
+        #                 continue
+        #             m = MultivariateNormal(mean.float(), (torch.diag(var) + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)).float())
+        #             sampled_data_single = m.sample(sample_shape=(1,))
+        #             sampled_data.append(sampled_data_single)
 
-        sample_mean = torch.cat(sampled_data, dim=0).float().to(device)
-        M = torch.cat([sample_mean, features], dim=0)
+        # sample_mean = torch.cat(sampled_data, dim=0).float().to(device)
+        # M = torch.cat([sample_mean, features], dim=0)
 
         ##########################
-        # sample_mean = []
-        # for k, v in cls_mean.items():
-        #     if isinstance(v, list):
-        #         sample_mean.extend(v)
-        #     else:
-        #         sample_mean.append(v)
-        # sample_mean = torch.stack(sample_mean, dim=0).to(device, non_blocking=True)
-        # M = torch.cat([sample_mean, features], dim=0)
+        sample_mean = []
+        for k, v in cls_mean.items():
+            if isinstance(v, list):
+                sample_mean.extend(v)
+            else:
+                sample_mean.append(v)
+        sample_mean = torch.stack(sample_mean, dim=0).to(device, non_blocking=True)
+        M = torch.cat([sample_mean, features], dim=0)
         #########################
-        # M = F.normalize(M, dim=1)
+        M = F.normalize(M, dim=1)
         sim = torch.matmul(M, M.t()) / 0.8
         sim_logits = F.log_softmax(sim, dim=1)
         loss = sim_logits[sample_mean.shape[0]:, :sample_mean.shape[0]].mean()
