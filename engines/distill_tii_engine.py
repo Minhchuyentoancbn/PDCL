@@ -47,7 +47,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
             not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
             logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-        if args.use_auxillary_head and args.auxillary_loss_lambda2 > 0:
+        if args.consistency_loss and args.auxillary_loss_lambda2 > 0:
             # features = output['features']
 
             pretrained_res = model.get_query(input)
@@ -69,6 +69,13 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
 
         else:
             loss = criterion(logits, target)
+
+        if args.use_auxillary_head:
+            aux_logits = output['aux_logits']
+            if args.train_mask and class_mask is not None:
+                aux_logits = aux_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+            aux_loss = criterion(aux_logits, target)
+            loss += aux_loss * args.auxillary_loss_lambda1
 
         # optimizer.zero_grad()
         # loss.backward()

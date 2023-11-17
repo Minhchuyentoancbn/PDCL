@@ -535,6 +535,8 @@ class VisionTransformer(nn.Module):
         if weight_init != 'skip':
             self.init_weights(weight_init)
 
+        self.auxillary_head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
+
 
     def init_weights(self, mode=''):
         assert mode in ('jax', 'jax_nlhb', 'moco', '')
@@ -705,6 +707,7 @@ class VisionTransformer(nn.Module):
         x = x[:, 0]
 
         res['features'] = x
+        res['aux_logits'] = self.auxillary_head(x)
 
         x = self.mlp(x)
         x = self.fc_norm(x)
