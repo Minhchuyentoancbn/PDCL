@@ -57,7 +57,8 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
             if args.train_mask and class_mask is not None:
                 pretrained_logits = pretrained_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-            feature_criterion = nn.L1Loss()
+            # feature_criterion = nn.L1Loss()
+            feature_criterion = nn.MSELoss()
             logits_criterion = nn.KLDivLoss(reduction='batchmean')
 
             main_loss = criterion(logits, target)
