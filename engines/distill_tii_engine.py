@@ -485,54 +485,45 @@ def compute_confusion_matrix(model: torch.nn.Module, data_loader,
     print(f'TII Acc: {np.trace(confusion_matrix) / np.sum(confusion_matrix)}')
 
     return confusion_matrix
-
-
-class CenterLoss(nn.Module):
-    """
-    Center Loss
-    """
-
-    def __init__(self, num_classes:int=10544, feat_dim:int=512):
-        """
-        Parameters
-        ----------
-        num_classes: int
-            number of classes
-
-        feat_dim: int
-            feature dimension
-        """
-        super(CenterLoss, self).__init__()
-        self.num_classes = num_classes
-        self.feat_dim = feat_dim
-
-        self.centers = nn.Parameter(torch.randn(self.num_classes, self.feat_dim))
-
-
-    def forward(self, x, labels):
-        batch_size = labels.size(0)
-        distmat = torch.pow(x, 2).sum(dim=1, keepdim=True).expand(batch_size, self.num_classes) + \
-                  torch.pow(self.centers, 2).sum(dim=1, keepdim=True).expand(self.num_classes, batch_size).t()  # (batch_size, num_classes)
-        distmat.addmm_(x, self.centers.t(), beta=1, alpha=-2)
-        classes = torch.arange(self.num_classes).long().to(labels.device)
-        labels = labels.unsqueeze(1).expand(batch_size, self.num_classes)
-        mask = labels.eq(classes.expand(batch_size, self.num_classes))
-        dist = distmat * mask.float()
-        loss = dist.clamp(min=1e-12, max=1e+12).sum() / batch_size
-        return loss
-    
+   
 
 def orth_loss(features, targets, device, args):
     if cls_mean:
         # orth loss of this batch
-        sample_mean = []
-        for k, v in cls_mean.items():
-            if isinstance(v, list):
-                sample_mean.extend(v)
-            else:
-                sample_mean.append(v)
-        sample_mean = torch.stack(sample_mean, dim=0).to(device, non_blocking=True)
+        sampled_data = []
+        if args.ca_storage_efficient_method in ['covariance', 'variance']:
+            for k, v in cls_mean.items():
+                mean = torch.tensor(v, dtype=torch.float64).to(device)
+                cov = cls_cov[k].to(device)
+                if args.ca_storage_efficient_method == 'variance':
+                    cov = torch.diag(cov)
+                m = MultivariateNormal(mean.float(), cov.float())
+                sampled_data_single = m.sample(sample_shape=(1,))
+                sampled_data.append(sampled_data_single)
+        elif args.ca_storage_efficient_method == 'multi-centroid':
+            for k, v in cls_mean.items():
+                for cluster in range(len(v)):
+                    mean = v[cluster]
+                    var = cls_cov[k][cluster]
+                    if var.mean() == 0:
+                        continue
+                    m = MultivariateNormal(mean.float(), (torch.diag(var) + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)).float())
+                    sampled_data_single = m.sample(sample_shape=(1,))
+                    sampled_data.append(sampled_data_single)
+
+        sample_mean = torch.cat(sampled_data, dim=0).float().to(device)
         M = torch.cat([sample_mean, features], dim=0)
+
+        ##########################
+        # sample_mean = []
+        # for k, v in cls_mean.items():
+        #     if isinstance(v, list):
+        #         sample_mean.extend(v)
+        #     else:
+        #         sample_mean.append(v)
+        # sample_mean = torch.stack(sample_mean, dim=0).to(device, non_blocking=True)
+        # M = torch.cat([sample_mean, features], dim=0)
+        #########################
         M = F.normalize(M, dim=1)
         sim = torch.matmul(M, M.t()) / 0.8
         sim_logits = F.log_softmax(sim, dim=1)
