@@ -156,6 +156,7 @@ def get_args_parser(subparsers):
     # Auxillary parameters
     subparsers.add_argument('--contrastive_loss', action='store_true', help='if using contrastive loss')
     subparsers.add_argument('--consistency_loss', action='store_true', help='if using consistency loss')
+    subparsers.add_argument('--temp', default=0.1, type=float, help='temperature for consistency loss')
     subparsers.add_argument('--use_auxillary_head', action='store_true', help='if using auxillary head')
     subparsers.add_argument('--auxillary_loss_lambda1', default=1.0, type=float, help='auxillary_loss_weight')
     subparsers.add_argument('--auxillary_loss_lambda2', default=1.0, type=float, help='auxillary_loss_weight')
