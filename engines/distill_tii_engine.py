@@ -40,50 +40,105 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
         output = model(input)
         logits = output['logits']
 
-        # here is the trick to mask out classes of non-current tasks
+        #################################
         if args.train_mask and class_mask is not None:
-            mask = class_mask[task_id]
+            mask = []
+            for id in range(task_id+1):
+                mask.extend(class_mask[id])
+            # print(mask)
             not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
             not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
             logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-        if args.consistency_loss and args.auxillary_loss_lambda2 > 0:
-            # features = output['features']
+        loss = criterion(logits, target)  # base criterion (CrossEntropyLoss)
 
-            pretrained_res = model.get_query(input)
-            # pretrained_features = pretrained_res['features']
-            pretrained_logits = pretrained_res['logits'] / args.temp
+        if cls_mean:
+            sampled_data = []
+            sampled_label = []
+            num_sampled_pcls = 1
+
+            if args.ca_storage_efficient_method in ['covariance', 'variance']:
+                for i in range(task_id + 1):
+                    for c_id in class_mask[i]:
+                        mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
+                        cov = cls_cov[c_id].to(device)
+                        if args.ca_storage_efficient_method == 'variance':
+                            cov = torch.diag(cov)
+                        m = MultivariateNormal(mean.float(), cov.float())
+                        sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
+                        sampled_data.append(sampled_data_single)
+
+                        sampled_label.extend([c_id] * num_sampled_pcls)
+
+            elif args.ca_storage_efficient_method == 'multi-centroid':
+                for i in range(task_id + 1):
+                    for c_id in class_mask[i]:
+                        for cluster in range(len(cls_mean[c_id])):
+                            mean = cls_mean[c_id][cluster]
+                            var = cls_cov[c_id][cluster]
+                            if var.mean() == 0:
+                                continue
+                            m = MultivariateNormal(mean.float(), (torch.diag(var) + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)).float())
+                            sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
+                            sampled_data.append(sampled_data_single)
+                            sampled_label.extend([c_id] * num_sampled_pcls)
+
+            sampled_data = torch.cat(sampled_data, dim=0).float().to(device)
+            sampled_label = torch.tensor(sampled_label).long().to(device)
+
+            sampled_inputs = sampled_data
+            sampled_targets = sampled_label
+
+            sf_indexes = torch.randperm(sampled_inputs.size(0))
+            sampled_inputs = sampled_inputs[sf_indexes]
+            sampled_targets = sampled_targets[sf_indexes]
+
+            sampled_outputs = model(sampled_inputs, fc_only=True)
+            sampled_logits = sampled_outputs['logits']
 
             if args.train_mask and class_mask is not None:
-                pretrained_logits = pretrained_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+                sampled_logits = sampled_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+            
+            sampled_loss = criterion(sampled_logits, sampled_targets)  # base criterion (CrossEntropyLoss)
+            loss += sampled_loss * args.reg
+        
+        #################################
 
-            # feature_criterion = nn.L1Loss()
-            # feature_criterion = nn.MSELoss()
-            logits_criterion = nn.KLDivLoss(reduction='batchmean')
+        #################################
+        # # here is the trick to mask out classes of non-current tasks
+        # if args.train_mask and class_mask is not None:
+        #     mask = class_mask[task_id]
+        #     not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
+        #     not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+        #     logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-            main_loss = criterion(logits, target)
-            # feature_loss = feature_criterion(features, pretrained_features)
-            logits_loss = logits_criterion(nn.functional.log_softmax(logits[:, mask], dim=1),
-                                           nn.functional.softmax(pretrained_logits[:, mask], dim=1))
+        # if args.consistency_loss and args.auxillary_loss_lambda2 > 0:
+        #     # features = output['features']
 
-            loss = main_loss + logits_loss * args.auxillary_loss_lambda2 #+ feature_loss * args.auxillary_loss_lambda1 # 
+        #     pretrained_res = model.get_query(input)
+        #     # pretrained_features = pretrained_res['features']
+        #     pretrained_logits = pretrained_res['logits'] / args.temp
 
-        else:
-            loss = criterion(logits, target)
+        #     if args.train_mask and class_mask is not None:
+        #         pretrained_logits = pretrained_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
+        #     # feature_criterion = nn.L1Loss()
+        #     # feature_criterion = nn.MSELoss()
+        #     logits_criterion = nn.KLDivLoss(reduction='batchmean')
 
-        # optimizer.zero_grad()
-        # loss.backward()
-        # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
-        # optimizer.step()
+        #     main_loss = criterion(logits, target)
+        #     # feature_loss = feature_criterion(features, pretrained_features)
+        #     logits_loss = logits_criterion(nn.functional.log_softmax(logits[:, mask], dim=1),
+        #                                    nn.functional.softmax(pretrained_logits[:, mask], dim=1))
 
-        # if not math.isfinite(loss.item()):
-        #     print("Loss is {}, stopping training".format(loss.item()))
-        #     sys.exit(1)
+        #     loss = main_loss + logits_loss * args.auxillary_loss_lambda2 #+ feature_loss * args.auxillary_loss_lambda1 # 
 
-        # loss = criterion(logits, target)
-        if args.contrastive_loss:
-            loss += orth_loss(output['pre_logits'], target, device, args)
+        # else:
+        #     loss = criterion(logits, target)
+
+        # if args.contrastive_loss:
+        #     loss += orth_loss(output['pre_logits'], target, device, args)
+        #################################
 
         optimizer.zero_grad()
         loss.backward()
