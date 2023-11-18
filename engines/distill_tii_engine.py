@@ -283,7 +283,13 @@ def _compute_mean(model: torch.nn.Module, data_loader: Iterable, device: torch.d
         features_per_cls = []
         for i, (inputs, targets) in enumerate(data_loader_cls):
             inputs = inputs.to(device, non_blocking=True)
-            features = model(inputs)['pre_logits']
+            ##############################
+            features = model.get_query(inputs)['features']
+            ##############################
+
+            ##############################
+            # features = model(inputs)['pre_logits']
+            ##############################
             features_per_cls.append(features)
         features_per_cls = torch.cat(features_per_cls, dim=0)
         features_per_cls_list = [torch.zeros_like(features_per_cls, device=device) for _ in range(args.world_size)]
