@@ -100,7 +100,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
                 sampled_logits = sampled_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
             
             sampled_loss = criterion(sampled_logits, sampled_targets)  # base criterion (CrossEntropyLoss)
-            loss += sampled_loss * args.reg
+            loss += sampled_loss * args.reg * (input.shape[0] / sampled_inputs.shape[0])
         
         #################################
 
