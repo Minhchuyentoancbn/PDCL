@@ -158,5 +158,5 @@ def get_args_parser(subparsers):
     subparsers.add_argument('--consistency_loss', action='store_true', help='if using consistency loss')
     subparsers.add_argument('--temp', default=0.1, type=float, help='temperature for consistency loss')
     subparsers.add_argument('--use_auxillary_head', action='store_true', help='if using auxillary head')
-    subparsers.add_argument('--auxillary_loss_lambda1', default=1.0, type=float, help='auxillary_loss_weight')
-    subparsers.add_argument('--auxillary_loss_lambda2', default=1.0, type=float, help='auxillary_loss_weight')
+    subparsers.add_argument('--lambda1', default=1.0, type=float, help='Weight for feature consistency loss')
+    subparsers.add_argument('--lambda2', default=1.0, type=float, help='Weight for logits consistency loss')
