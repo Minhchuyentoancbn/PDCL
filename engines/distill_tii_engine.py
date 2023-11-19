@@ -444,6 +444,7 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
         sampled_data = []
         sampled_label = []
         num_sampled_pcls = args.batch_size
+        sample_masks = []
 
         metric_logger = utils.MetricLogger(delimiter="  ")
         metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
@@ -462,6 +463,12 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
 
                     sampled_label.extend([c_id] * num_sampled_pcls)
 
+                    #######################
+                    mask = torch.ones(num_sampled_pcls, args.nb_classes) * float('-inf')  # Mask the class of current task
+                    mask[:, class_mask[i]] = 0
+                    sample_masks.append(mask)
+                    #######################
+
         elif args.ca_storage_efficient_method == 'multi-centroid':
             for i in range(task_id + 1):
                 for c_id in class_mask[i]:
@@ -475,24 +482,35 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
                         sampled_data.append(sampled_data_single)
                         sampled_label.extend([c_id] * num_sampled_pcls)
 
+                        #######################
+                        mask = torch.zeros(num_sampled_pcls, args.nb_classes)  # Mask the class of current task
+                        mask[:, class_mask[i]] = 1
+                        sample_masks.append(mask)
+                        #######################
+
         else:
             raise NotImplementedError
 
 
         sampled_data = torch.cat(sampled_data, dim=0).float().to(device)
         sampled_label = torch.tensor(sampled_label).long().to(device)
+        sampled_masks = torch.cat(sample_masks, dim=0).float().to(device)
 
         inputs = sampled_data
         targets = sampled_label
+        masks = sampled_masks
 
         sf_indexes = torch.randperm(inputs.size(0))
         inputs = inputs[sf_indexes]
         targets = targets[sf_indexes]
+        masks = masks[sf_indexes]
         #print(targets)
 
         for _iter in range(crct_num):
             inp = inputs[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
             tgt = targets[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
+            task_mask = masks[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
+
             outputs = model(inp, fc_only=True)
             logits = outputs['logits']
 
@@ -505,10 +523,13 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
                 not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
                 logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
+            # loss = criterion(logits, tgt)  # base criterion (CrossEntropyLoss)
 
-
-
-            loss = criterion(logits, tgt)  # base criterion (CrossEntropyLoss)
+            ###################################
+            task_target = F.softmax(task_mask, dim=1)
+            loss = criterion(logits, task_target)
+            ###################################
+            
             acc1, acc5 = accuracy(logits, tgt, topk=(1, 5))
 
             if not math.isfinite(loss.item()):
