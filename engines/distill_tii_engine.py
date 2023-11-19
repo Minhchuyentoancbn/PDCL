@@ -527,7 +527,8 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
 
             ###################################
             task_target = task_mask / task_mask.sum(dim=1, keepdim=True)
-            print(task_target)
+            print(task_target[:, 20])
+            print(task_target.sum(dim=1))
             loss = criterion(logits, task_target)
             ###################################
 
