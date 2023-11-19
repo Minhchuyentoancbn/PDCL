@@ -465,7 +465,9 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
 
                     #######################
                     mask = torch.zeros(num_sampled_pcls, args.nb_classes)  # Mask the class of current task
-                    mask[:, class_mask[i]] = 1
+                    # Label smoothing
+                    mask[:, class_mask[i]] = args.eps / len(class_mask[i])
+                    mask[:, c_id] = 1 - args.eps + args.eps / len(class_mask[i])
                     sample_masks.append(mask)
                     #######################
 
@@ -526,7 +528,6 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
             # loss = criterion(logits, tgt)  # base criterion (CrossEntropyLoss)
 
             ###################################
-            task_mask= task_mask / task_mask.sum(dim=1, keepdim=True)
             # print(task_mask[0, :20])
             # print(task_target.sum(dim=1))
             # loss = criterion(logits, task_target)

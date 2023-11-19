@@ -160,3 +160,4 @@ def get_args_parser(subparsers):
     subparsers.add_argument('--use_auxillary_head', action='store_true', help='if using auxillary head')
     subparsers.add_argument('--lambda1', default=1.0, type=float, help='Weight for feature consistency loss')
     subparsers.add_argument('--lambda2', default=1.0, type=float, help='Weight for logits consistency loss')
+    subparsers.add_argument('--eps', default=0.1, type=float, help='eps for label smoothing')
