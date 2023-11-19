@@ -152,12 +152,3 @@ def get_args_parser(subparsers):
     subparsers.add_argument('--n_centroids', default=10, type=int)
     # Misc parameters
     subparsers.add_argument('--print_freq', type=int, default=10, help='The frequency of printing')
-
-    # Auxillary parameters
-    subparsers.add_argument('--contrastive_loss', action='store_true', help='if using contrastive loss')
-    subparsers.add_argument('--consistency_loss', action='store_true', help='if using consistency loss')
-    subparsers.add_argument('--temp', default=0.1, type=float, help='temperature for consistency loss')
-    subparsers.add_argument('--use_auxillary_head', action='store_true', help='if using auxillary head')
-    subparsers.add_argument('--lambda1', default=1.0, type=float, help='Weight for feature consistency loss')
-    subparsers.add_argument('--lambda2', default=1.0, type=float, help='Weight for logits consistency loss')
-    subparsers.add_argument('--eps', default=0.1, type=float, help='eps for label smoothing')

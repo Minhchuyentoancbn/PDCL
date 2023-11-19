@@ -46,35 +46,8 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
             not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
             not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
             logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
-
-        if args.consistency_loss and args.auxillary_loss_lambda2 > 0:
-            # features = output['features']
-
-            pretrained_res = model.get_query(input)
-            # pretrained_features = pretrained_res['features']
-            pretrained_logits = pretrained_res['logits'] / args.temp
-
-            if args.train_mask and class_mask is not None:
-                pretrained_logits = pretrained_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
-
-            # feature_criterion = nn.L1Loss()
-            # feature_criterion = nn.MSELoss()
-            logits_criterion = nn.KLDivLoss(reduction='batchmean')
-
-            main_loss = criterion(logits, target)
-            # feature_loss = feature_criterion(features, pretrained_features)
-            logits_loss = logits_criterion(nn.functional.log_softmax(logits[:, mask], dim=1),
-                                           nn.functional.softmax(pretrained_logits[:, mask], dim=1))
-
-            loss = main_loss + logits_loss * args.auxillary_loss_lambda2 #+ feature_loss * args.auxillary_loss_lambda1 # 
-
-        else:
-            target_mask = torch.zeros_like(logits, device=device)
-            target_mask[:, mask] = args.eps / len(class_mask[task_id])
-            target_mask[torch.arange(target_mask.shape[0]), target] = 1 - args.eps + args.eps / len(class_mask[task_id])
-            loss = -torch.sum(torch.log_softmax(logits, dim=1)[:, mask] * target_mask[:, mask], dim=1).mean()
-            # loss = criterion(logits, target)
-
+        
+        loss = criterion(logits, target)
 
         optimizer.zero_grad()
         loss.backward()
@@ -357,7 +330,6 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
         sampled_data = []
         sampled_label = []
         num_sampled_pcls = args.batch_size
-        sample_masks = []
 
         metric_logger = utils.MetricLogger(delimiter="  ")
         metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
@@ -376,14 +348,6 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
 
                     sampled_label.extend([c_id] * num_sampled_pcls)
 
-                    #######################
-                    mask = torch.zeros(num_sampled_pcls, args.nb_classes)  # Mask the class of current task
-                    # Label smoothing
-                    mask[:, class_mask[i]] = args.eps / len(class_mask[i])
-                    mask[:, c_id] = 1 - args.eps + args.eps / len(class_mask[i])
-                    sample_masks.append(mask)
-                    #######################
-
         elif args.ca_storage_efficient_method == 'multi-centroid':
             for i in range(task_id + 1):
                 for c_id in class_mask[i]:
@@ -397,25 +361,15 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
                         sampled_data.append(sampled_data_single)
                         sampled_label.extend([c_id] * num_sampled_pcls)
 
-                        #######################
-                        mask = torch.zeros(num_sampled_pcls, args.nb_classes)  # Mask the class of current task
-                        # Label smoothing
-                        mask[:, class_mask[i]] = args.eps / len(class_mask[i])
-                        mask[:, c_id] = 1 - args.eps + args.eps / len(class_mask[i])
-                        sample_masks.append(mask)
-                        #######################
-
         else:
             raise NotImplementedError
 
 
         sampled_data = torch.cat(sampled_data, dim=0).float().to(device)
         sampled_label = torch.tensor(sampled_label).long().to(device)
-        sampled_masks = torch.cat(sample_masks, dim=0).float().to(device)
 
         inputs = sampled_data
         targets = sampled_label
-        masks = sampled_masks
 
         sf_indexes = torch.randperm(inputs.size(0))
         inputs = inputs[sf_indexes]
@@ -426,7 +380,6 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
         for _iter in range(crct_num):
             inp = inputs[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
             tgt = targets[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
-            task_mask = masks[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
 
             outputs = model(inp, fc_only=True)
             logits = outputs['logits']
@@ -440,14 +393,7 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
                 not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
                 logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-            # loss = criterion(logits, tgt)  # base criterion (CrossEntropyLoss)
-
-            ###################################
-            # print(task_mask[0, :20])
-            # print(task_target.sum(dim=1))
-            # loss = criterion(logits, task_target)
-            loss = -torch.sum(torch.log_softmax(logits, dim=1)[:, mask] * task_mask[:, mask], dim=1).mean()
-            ###################################
+            loss = criterion(logits, tgt)  # base criterion (CrossEntropyLoss)
 
             acc1, acc5 = accuracy(logits, tgt, topk=(1, 5))
 
