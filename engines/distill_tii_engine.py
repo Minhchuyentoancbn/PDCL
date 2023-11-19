@@ -374,7 +374,6 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
         sf_indexes = torch.randperm(inputs.size(0))
         inputs = inputs[sf_indexes]
         targets = targets[sf_indexes]
-        masks = masks[sf_indexes]
         #print(targets)
 
         for _iter in range(crct_num):
