@@ -526,10 +526,11 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
             # loss = criterion(logits, tgt)  # base criterion (CrossEntropyLoss)
 
             ###################################
-            task_target = task_mask / task_mask.sum(dim=1, keepdim=True)
-            print(task_target[:, 20])
-            print(task_target.sum(dim=1))
-            loss = criterion(logits, task_target)
+            task_mask= task_mask / task_mask.sum(dim=1, keepdim=True)
+            # print(task_target[:, 20])
+            # print(task_target.sum(dim=1))
+            # loss = criterion(logits, task_target)
+            loss = -torch.sum(torch.log_softmax(logits, dim=1) * task_mask, dim=1).mean()
             ###################################
 
             acc1, acc5 = accuracy(logits, tgt, topk=(1, 5))
