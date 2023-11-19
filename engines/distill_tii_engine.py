@@ -486,7 +486,9 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
 
                         #######################
                         mask = torch.zeros(num_sampled_pcls, args.nb_classes)  # Mask the class of current task
-                        mask[:, class_mask[i]] = 1
+                        # Label smoothing
+                        mask[:, class_mask[i]] = args.eps / len(class_mask[i])
+                        mask[:, c_id] = 1 - args.eps + args.eps / len(class_mask[i])
                         sample_masks.append(mask)
                         #######################
 
