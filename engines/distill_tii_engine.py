@@ -72,7 +72,6 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
 
                 elif args.ca_storage_efficient_method == 'multi-centroid':
                     num_sampled_pcls = num_sampled_pcls // args.n_centroids
-                    print(f"Number of sampled pcls per class per task: {num_sampled_pcls}")
                     for i in range(task_id):
                         for c_id in class_mask[i]:
                             for cluster in range(len(cls_mean[c_id])):
@@ -92,7 +91,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
                 if args.train_mask and class_mask is not None:
                     sampled_logits = sampled_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
                 sampled_loss = criterion(sampled_logits, sampled_label)
-                
+
                 loss += args.reg * (input.shape[0] / sampled_data.shape[0]) * sampled_loss
 
         else:
