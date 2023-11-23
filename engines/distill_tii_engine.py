@@ -87,12 +87,12 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
                 
                 sampled_data = torch.cat(sampled_data, dim=0).float().to(device)
                 sampled_label = torch.tensor(sampled_label).long().to(device)
-
-                sampled_output = model(sampled_data)
+                sampled_output = model(sampled_data, fc_only=True)
                 sampled_logits = sampled_output['logits']
                 if args.train_mask and class_mask is not None:
                     sampled_logits = sampled_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
                 sampled_loss = criterion(sampled_logits, sampled_label)
+                
                 loss += args.reg * (input.shape[0] / sampled_data.shape[0]) * sampled_loss
 
         else:
