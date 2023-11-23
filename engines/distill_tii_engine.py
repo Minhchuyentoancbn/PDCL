@@ -39,15 +39,71 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
 
         output = model(input)
         logits = output['logits']
-
-        # here is the trick to mask out classes of non-current tasks
-        if args.train_mask and class_mask is not None:
-            mask = class_mask[task_id]
-            not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
-            not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
-            logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
         
-        loss = criterion(logits, target)
+        if args.use_gaussian:
+            if args.train_mask and class_mask is not None:
+                mask = []
+                for id in range(task_id+1):
+                    mask.extend(class_mask[id])
+                # print(mask)
+                not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
+                not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+                logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+
+            loss = criterion(logits, target)
+
+            if cls_mean:
+                sampled_data = []
+                sampled_label = []
+                num_sampled_pcls = int(args.batch_size / args.nb_classes * args.num_tasks)
+
+                if args.ca_storage_efficient_method in ['covariance', 'variance']:
+                    for i in range(task_id):
+                        for c_id in class_mask[i]:
+                            mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
+                            cov = cls_cov[c_id].to(device)
+                            if args.ca_storage_efficient_method == 'variance':
+                                cov = torch.diag(cov)
+                            m = MultivariateNormal(mean.float(), cov.float())
+                            sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
+                            sampled_data.append(sampled_data_single)
+
+                            sampled_label.extend([c_id] * num_sampled_pcls)
+
+                elif args.ca_storage_efficient_method == 'multi-centroid':
+                    num_sampled_pcls = num_sampled_pcls // args.n_centroids
+                    print(f"Number of sampled pcls per class per task: {num_sampled_pcls}")
+                    for i in range(task_id):
+                        for c_id in class_mask[i]:
+                            for cluster in range(len(cls_mean[c_id])):
+                                mean = cls_mean[c_id][cluster]
+                                var = cls_cov[c_id][cluster]
+                                if var.mean() == 0:
+                                    continue
+                                m = MultivariateNormal(mean.float(), (torch.diag(var) + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)).float())
+                                sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
+                                sampled_data.append(sampled_data_single)
+                                sampled_label.extend([c_id] * num_sampled_pcls)
+                
+                sampled_data = torch.cat(sampled_data, dim=0).float().to(device)
+                sampled_label = torch.tensor(sampled_label).long().to(device)
+
+                sampled_output = model(sampled_data)
+                sampled_logits = sampled_output['logits']
+                if args.train_mask and class_mask is not None:
+                    sampled_logits = sampled_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+                sampled_loss = criterion(sampled_logits, sampled_label)
+                loss += args.reg * (input.shape[0] / sampled_data.shape[0]) * sampled_loss
+
+        else:
+            # here is the trick to mask out classes of non-current tasks
+            if args.train_mask and class_mask is not None:
+                mask = class_mask[task_id]
+                not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
+                not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+                logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+
+            loss = criterion(logits, target)
 
         optimizer.zero_grad()
         loss.backward()
