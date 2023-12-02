@@ -390,7 +390,7 @@ def _compute_mean(model: torch.nn.Module, data_loader: Iterable, device: torch.d
                 cluster_means_param.append(cluster_mean_proto)
                 learnable_prototypes.append(cluster_mean_proto)
                 # Decompose covariance matrix
-                l = torch.linalg.cholesky(torch.diag(cluster_var) + 1e-4 * torch.eye(cluster_mean.shape[0]))
+                l = torch.linalg.cholesky(torch.diag(cluster_var) + 1e-4 * torch.eye(cluster_mean.shape[0]).to(cluster_mean.device))
                 cluster_var_proto = nn.Parameter(l)
                 cluster_vars_param.append(cluster_var_proto)
                 learnable_prototypes.append(cluster_var_proto)
