@@ -663,6 +663,7 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
 
                     optimizer.zero_grad()
                     loss.backward()
+                    assert learnable_prototypes[0].grad is not None, 'No gradient for learnable prototypes'
                     nn.utils.clip_grad_norm_(learnable_prototypes, args.clip_grad)
                     optimizer.step()
                     torch.cuda.synchronize()
