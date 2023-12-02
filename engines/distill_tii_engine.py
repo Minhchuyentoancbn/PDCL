@@ -164,9 +164,9 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
                             # mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
                             # cov = cls_cov[c_id].to(device)
                             mean = torch.tensor(cls_mean_param[c_id], dtype=torch.float64).to(device)
-                            cov = (cls_cov_param[c_id] @ cls_cov_param[c_id].T).to(device)
+                            cov = (cls_cov_param[c_id] @ cls_cov_param[c_id].T).to(device) + 1e-4 * torch.eye(cls_cov_param[c_id].shape[0]).to(device)
                             if args.ca_storage_efficient_method == 'variance':
-                                cov = torch.diag(cov)
+                                cov = torch.diag(torch.diag(cov))
                             m = MultivariateNormal(mean.float(), cov.float())
                             sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
                             sampled_data.append(sampled_data_single)
@@ -181,10 +181,10 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
                                 # mean = cls_mean[c_id][cluster]
                                 # var = cls_cov[c_id][cluster]
                                 mean = cls_mean_param[c_id][cluster]
-                                var = (cls_cov_param[c_id][cluster] @ cls_cov_param[c_id][cluster].T)
-                                if var.mean() == 0:
+                                var = (cls_cov_param[c_id][cluster] @ cls_cov_param[c_id][cluster].T) + 1e-4 * torch.eye(cls_cov_param[c_id][cluster].shape[0]).to(cls_cov_param[c_id][cluster].device)
+                                if var.sum() == 0:
                                     continue
-                                m = MultivariateNormal(mean.float(), (torch.diag(var) + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)).float())
+                                m = MultivariateNormal(mean.float(), var)
                                 sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
                                 sampled_data.append(sampled_data_single)
                                 sampled_label.extend([c_id] * num_sampled_pcls)
@@ -444,7 +444,8 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
                     mean = torch.tensor(cls_mean_param[c_id], dtype=torch.float64).to(device)
                     cov = (cls_cov_param[c_id] @ cls_cov_param[c_id].T).to(device)
                     if args.ca_storage_efficient_method == 'variance':
-                        cov = torch.diag(cov)
+                        # cov = torch.diag(cov)
+                        cov = torch.diag(torch.diag(cov))
                     m = MultivariateNormal(mean.float(), cov.float())
                     sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
                     sampled_data.append(sampled_data_single)
@@ -457,10 +458,10 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
                         # mean = cls_mean[c_id][cluster]
                         # var = cls_cov[c_id][cluster]
                         mean = cls_mean_param[c_id][cluster]
-                        var = (cls_cov_param[c_id][cluster] @ cls_cov_param[c_id][cluster].T)
-                        if var.mean() == 0:
+                        var = (cls_cov_param[c_id][cluster] @ cls_cov_param[c_id][cluster].T) + 1e-4 * torch.eye(cls_cov_param[c_id][cluster].shape[0]).to(cls_cov_param[c_id][cluster].device)
+                        if var.sum() == 0:
                             continue
-                        m = MultivariateNormal(mean.float(), (torch.diag(var) + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)).float())
+                        m = MultivariateNormal(mean.float(), var.float())
                         sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
                         sampled_data.append(sampled_data_single)
                         sampled_label.extend([c_id] * num_sampled_pcls)
@@ -560,7 +561,7 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
                             mean = torch.tensor(cls_mean_param[c_id], dtype=torch.float64).to(device)
                             cov = (cls_cov_param[c_id] @ cls_cov_param[c_id].T).to(device)
                             if args.ca_storage_efficient_method == 'variance':
-                                cov = torch.diag(cov)
+                                cov = torch.diag(torch.diag(cov))
                             m = MultivariateNormal(mean.float(), cov.float())
                             sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
                             sampled_data_single = sampled_data_single.to(device)
@@ -581,9 +582,9 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
                                 # var = cls_cov[c_id][cluster]
                                 mean = cls_mean_param[c_id][cluster]
                                 var = (cls_cov_param[c_id][cluster] @ cls_cov_param[c_id][cluster].T)
-                                if var.mean() == 0:
+                                if var.sum() == 0:
                                     continue
-                                m = MultivariateNormal(mean.float(), (torch.diag(var) + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)).float())
+                                m = MultivariateNormal(mean.float(), var.float())
                                 sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
                                 with torch.no_grad():
                                     sampled_output = model(sampled_data_single, fc_only=True)
