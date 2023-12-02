@@ -154,4 +154,7 @@ def get_args_parser(subparsers):
     subparsers.add_argument('--print_freq', type=int, default=10, help='The frequency of printing')
 
     # Add by myself
-    subparsers.add_argument('--use_gaussian', action='store_true', help='if using gaussian of previous tasks')
+    subparsers.add_argument('--use_gaussian', action='store_true')
+    subparsers.add_argument('--proto_lr', default=0.005, type=float)
+    subparsers.add_argument('--proto_epochs', default=30, type=int)
+    subparsers.add_argument('--proto_reg', default=0.1, type=float)
