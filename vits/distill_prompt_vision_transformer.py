@@ -682,6 +682,7 @@ class VisionTransformer(nn.Module):
             res = dict()
             x = self.mlp(x)
             x = self.fc_norm(x)
+            res['pre_features'] = x
             res['logits'] = self.head(x)
             return res
         res = self.forward_features(x, task_id=task_id, prompt_id=prompt_id, prompt_weight=prompt_weight, train=train, prompt_momentum=prompt_momentum)
