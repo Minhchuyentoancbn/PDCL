@@ -325,6 +325,7 @@ def _compute_mean(model: torch.nn.Module, data_loader: Iterable, device: torch.d
     model.eval()
 
     # Reset learnable prototypes
+    global learnable_prototypes
     learnable_prototypes = list()
 
     for cls_id in class_mask:
