@@ -534,7 +534,6 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
         print('-' * 20)
         print('Start updating prototypes')
         print('-' * 20)
-        print(f"Len of learnable prototypes: {len(learnable_prototypes)}")
         if 'mae' in args.model or 'beit' in args.model:
             optimizer = optim.AdamW(learnable_prototypes, lr=args.proto_lr / 10)
         else:
