@@ -401,6 +401,8 @@ def _compute_mean(model: torch.nn.Module, data_loader: Iterable, device: torch.d
             cls_mean_param[cls_id] = cluster_means_param
             cls_cov_param[cls_id] = cluster_vars_param
 
+    print(f'Len of learnable prototypes: {len(learnable_prototypes)}')
+
 
 def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_mask=None, task_id=-1):
     model.train()
