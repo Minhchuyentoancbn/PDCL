@@ -349,7 +349,7 @@ def _compute_mean(model: torch.nn.Module, data_loader: Iterable, device: torch.d
 
             cls_mean_param[cls_id] = nn.Parameter(cls_mean[cls_id])
             # Decompose covariance matrix
-            l = torch.cholesky(cls_cov[cls_id])
+            l = torch.linalg.cholesky(cls_cov[cls_id])
             cls_cov_param[cls_id] = nn.Parameter(l)
             learnable_prototypes.append(cls_mean_param[cls_id])
             learnable_prototypes.append(cls_cov_param[cls_id])
@@ -362,7 +362,7 @@ def _compute_mean(model: torch.nn.Module, data_loader: Iterable, device: torch.d
             
             cls_mean_param[cls_id] = nn.Parameter(cls_mean[cls_id])
             # Decompose covariance matrix
-            l = torch.cholesky(cls_cov[cls_id])
+            l = torch.linalg.cholesky(torch.diag(cls_cov[cls_id]))
             cls_cov_param[cls_id] = nn.Parameter(l)
             learnable_prototypes.append(cls_mean_param[cls_id])
             learnable_prototypes.append(cls_cov_param[cls_id])
@@ -390,7 +390,7 @@ def _compute_mean(model: torch.nn.Module, data_loader: Iterable, device: torch.d
                 cluster_means_param.append(cluster_mean_proto)
                 learnable_prototypes.append(cluster_mean_proto)
                 # Decompose covariance matrix
-                l = torch.cholesky(cluster_var)
+                l = torch.linalg.cholesky(torch.diag(cluster_var) + 1e-4 * torch.eye(cluster_mean.shape[0]))
                 cluster_var_proto = nn.Parameter(l)
                 cluster_vars_param.append(cluster_var_proto)
                 learnable_prototypes.append(cluster_var_proto)
