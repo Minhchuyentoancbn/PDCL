@@ -556,7 +556,7 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
             metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
             metric_logger.add_meter('Loss', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
             # Compute class mean for each class seen so far
-            train_prototypes = torch.ones((args.nb_classes, args.hidden_dim), device=device)
+            train_prototypes = torch.ones((args.nb_classes, 768), device=device)
 
             if cls_mean:
                 num_sampled_pcls = args.batch_size
