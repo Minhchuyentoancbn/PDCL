@@ -184,7 +184,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
                                 var = (cls_cov_param[c_id][cluster] @ cls_cov_param[c_id][cluster].T) + 1e-4 * torch.eye(cls_cov_param[c_id][cluster].shape[0]).to(cls_cov_param[c_id][cluster].device)
                                 if var.sum() == 0:
                                     continue
-                                m = MultivariateNormal(mean.float(), var)
+                                m = MultivariateNormal(mean.float(), var.float())
                                 sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
                                 sampled_data.append(sampled_data_single)
                                 sampled_label.extend([c_id] * num_sampled_pcls)
