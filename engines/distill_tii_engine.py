@@ -530,6 +530,12 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
 
 def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, task_id=-1, data_loader=None):
     if task_id > 0:
+        # Freeze MLP and model head
+        model.mlp.requires_grad_(False)
+        model.head.requires_grad_(False)
+        model.fc_norm.requires_grad_(False)
+
+
         run_epochs = args.proto_epochs
         print('-' * 20)
         print('Start updating prototypes')
@@ -694,6 +700,11 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
     # Freeze learnable prototypes
     for param in learnable_prototypes:
         param.requires_grad = False
+
+    # Unfreeze MLP and model head
+    model.mlp.requires_grad_(True)
+    model.head.requires_grad_(True)
+    model.fc_norm.requires_grad_(True)
 
 
 
