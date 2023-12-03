@@ -671,7 +671,7 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
                 loss += args.proto_reg * (input.shape[0] / sampled_data.shape[0]) * sampled_loss
 
                 optimizer.zero_grad()
-                loss.backward()
+                loss.backward(retain_graph=True)
                 assert learnable_prototypes[0].grad is not None, 'No gradient for learnable prototypes'
                 assert learnable_prototypes[1].grad is not None, 'No gradient for learnable prototypes'
                 nn.utils.clip_grad_norm_(learnable_prototypes, args.clip_grad)
