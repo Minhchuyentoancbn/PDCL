@@ -210,7 +210,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
             loss = criterion(logits, target)
 
         optimizer.zero_grad()
-        loss.backward(retain_graph=True)
+        loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
         optimizer.step()
 
@@ -677,7 +677,7 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
                         loss += args.proto_reg * (input.shape[0] / sampled_data.shape[0]) * sampled_loss
 
                     optimizer.zero_grad()
-                    loss.backward()
+                    loss.backward(retain_graph=True)
                     assert learnable_prototypes[0].grad is not None, 'No gradient for learnable prototypes'
                     nn.utils.clip_grad_norm_(learnable_prototypes, args.clip_grad)
                     optimizer.step()
