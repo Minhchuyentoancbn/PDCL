@@ -121,6 +121,90 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
                 f.write(json.dumps(log_stats) + '\n')
 
 
+def sample_data_train(task_id, class_mask, args, device, include_current_task=True):
+    sampled_data = []
+    sampled_label = []
+
+    if include_current_task:
+        num_sampled_pcls = args.batch_size
+    else:
+        num_sampled_pcls = int(args.batch_size / args.nb_classes * args.num_tasks)
+
+    max_task = task_id + 1 if include_current_task else task_id
+
+    if args.ca_storage_efficient_method in ['covariance', 'variance']:
+        for i in range(max_task):
+            for c_id in class_mask[i]:
+                # mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
+                # cov = cls_cov[c_id].to(device)
+                mean = torch.tensor(cls_mean_param[c_id], dtype=torch.float64).to(device)
+                cov = (cls_cov_param[c_id] @ cls_cov_param[c_id].T).to(device) + 1e-4 * torch.eye(cls_cov_param[c_id].shape[0]).to(device)
+                if args.ca_storage_efficient_method == 'variance':
+                    cov = torch.diag(torch.diag(cov))
+                m = MultivariateNormal(mean.float(), cov.float())
+                sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
+                sampled_data.append(sampled_data_single)
+                sampled_label.extend([c_id] * num_sampled_pcls)
+
+    elif args.ca_storage_efficient_method == 'multi-centroid':
+        num_sampled_pcls = num_sampled_pcls // args.n_centroids
+        for i in range(max_task):
+            for c_id in class_mask[i]:
+                for cluster in range(len(cls_mean[c_id])):
+                    # mean = cls_mean[c_id][cluster]
+                    # var = cls_cov[c_id][cluster]
+                    mean = cls_mean_param[c_id][cluster]
+                    var = (cls_cov_param[c_id][cluster] @ cls_cov_param[c_id][cluster].T) + 1e-4 * torch.eye(cls_cov_param[c_id][cluster].shape[0]).to(cls_cov_param[c_id][cluster].device)
+                    if var.sum() == 0:
+                        continue
+                    m = MultivariateNormal(mean.float(), var.float())
+                    sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
+                    sampled_data.append(sampled_data_single)
+                    sampled_label.extend([c_id] * num_sampled_pcls)
+    
+    sampled_data = torch.cat(sampled_data, dim=0).float().to(device)
+    sampled_label = torch.tensor(sampled_label).long().to(device)
+
+    return sampled_data, sampled_label
+
+
+def sample_data_test(task_id, class_mask, args, device):
+    sampled_data = []
+    sampled_label = []
+    num_sampled_pcls = int(args.batch_size / args.nb_classes * args.num_tasks)
+
+    if args.ca_storage_efficient_method in ['covariance', 'variance']:
+        for i in range(task_id):
+            for c_id in class_mask[i]:
+                mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
+                cov = cls_cov[c_id].to(device)
+                if args.ca_storage_efficient_method == 'variance':
+                    cov = torch.diag(cov)
+                m = MultivariateNormal(mean.float(), cov.float())
+                sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
+                sampled_data.append(sampled_data_single)
+
+                sampled_label.extend([c_id] * num_sampled_pcls)
+
+    elif args.ca_storage_efficient_method == 'multi-centroid':
+        for i in range(task_id):
+            for c_id in class_mask[i]:
+                for cluster in range(len(cls_mean[c_id])):
+                    mean = cls_mean[c_id][cluster]
+                    var = cls_cov[c_id][cluster]
+                    if var.mean() == 0:
+                        continue
+                    m = MultivariateNormal(mean.float(), (torch.diag(var) + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)).float())
+                    sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
+                    sampled_data.append(sampled_data_single)
+                    sampled_label.extend([c_id] * num_sampled_pcls)
+    
+    sampled_data = torch.cat(sampled_data, dim=0).float().to(device)
+    sampled_label = torch.tensor(sampled_label).long().to(device)
+
+    return sampled_data, sampled_label
+
+
 def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, max_norm: float = 0,
                     set_training_mode=True, task_id=-1, class_mask=None, args=None):
@@ -154,43 +238,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
             loss = criterion(logits, target)
 
             if cls_mean:
-                sampled_data = []
-                sampled_label = []
-                num_sampled_pcls = int(args.batch_size / args.nb_classes * args.num_tasks)
-
-                if args.ca_storage_efficient_method in ['covariance', 'variance']:
-                    for i in range(task_id):
-                        for c_id in class_mask[i]:
-                            # mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
-                            # cov = cls_cov[c_id].to(device)
-                            mean = torch.tensor(cls_mean_param[c_id], dtype=torch.float64).to(device)
-                            cov = (cls_cov_param[c_id] @ cls_cov_param[c_id].T).to(device) + 1e-4 * torch.eye(cls_cov_param[c_id].shape[0]).to(device)
-                            if args.ca_storage_efficient_method == 'variance':
-                                cov = torch.diag(torch.diag(cov))
-                            m = MultivariateNormal(mean.float(), cov.float())
-                            sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
-                            sampled_data.append(sampled_data_single)
-
-                            sampled_label.extend([c_id] * num_sampled_pcls)
-
-                elif args.ca_storage_efficient_method == 'multi-centroid':
-                    num_sampled_pcls = num_sampled_pcls // args.n_centroids
-                    for i in range(task_id):
-                        for c_id in class_mask[i]:
-                            for cluster in range(len(cls_mean[c_id])):
-                                # mean = cls_mean[c_id][cluster]
-                                # var = cls_cov[c_id][cluster]
-                                mean = cls_mean_param[c_id][cluster]
-                                var = (cls_cov_param[c_id][cluster] @ cls_cov_param[c_id][cluster].T) + 1e-4 * torch.eye(cls_cov_param[c_id][cluster].shape[0]).to(cls_cov_param[c_id][cluster].device)
-                                if var.sum() == 0:
-                                    continue
-                                m = MultivariateNormal(mean.float(), var.float())
-                                sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
-                                sampled_data.append(sampled_data_single)
-                                sampled_label.extend([c_id] * num_sampled_pcls)
-                
-                sampled_data = torch.cat(sampled_data, dim=0).float().to(device)
-                sampled_label = torch.tensor(sampled_label).long().to(device)
+                sampled_data, sampled_label = sample_data_train(task_id, class_mask, args, device, include_current_task=False)
                 sampled_output = model(sampled_data, fc_only=True)
                 sampled_logits = sampled_output['logits']
                 if args.train_mask and class_mask is not None:
@@ -343,8 +391,6 @@ def _compute_mean(model: torch.nn.Module, data_loader: Iterable, device: torch.d
             dist.all_gather(features_per_cls_list, features_per_cls)
 
         if args.ca_storage_efficient_method == 'covariance':
-            # features_per_cls = torch.cat(features_per_cls_list, dim=0)
-            # print(features_per_cls.shape)
             cls_mean[cls_id] = features_per_cls.mean(dim=0)
             cls_cov[cls_id] = torch.cov(features_per_cls.T) + (torch.eye(cls_mean[cls_id].shape[-1]) * 1e-4).to(device)
 
@@ -356,8 +402,6 @@ def _compute_mean(model: torch.nn.Module, data_loader: Iterable, device: torch.d
             learnable_prototypes.append(cls_cov_param[cls_id])
 
         if args.ca_storage_efficient_method == 'variance':
-            # features_per_cls = torch.cat(features_per_cls_list, dim=0)
-            # print(features_per_cls.shape)
             cls_mean[cls_id] = features_per_cls.mean(dim=0)
             cls_cov[cls_id] = torch.diag(torch.cov(features_per_cls.T) + (torch.eye(cls_mean[cls_id].shape[-1]) * 1e-4).to(device))
             
@@ -443,39 +487,7 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
         metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
         metric_logger.add_meter('Loss', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
 
-        if args.ca_storage_efficient_method in ['covariance', 'variance']:
-            for i in range(task_id + 1):
-                for c_id in class_mask[i]:
-                    # mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
-                    # cov = cls_cov[c_id].to(device)
-                    mean = torch.tensor(cls_mean_param[c_id], dtype=torch.float64).to(device)
-                    cov = (cls_cov_param[c_id] @ cls_cov_param[c_id].T).to(device)
-                    if args.ca_storage_efficient_method == 'variance':
-                        # cov = torch.diag(cov)
-                        cov = torch.diag(torch.diag(cov))
-                    m = MultivariateNormal(mean.float(), cov.float())
-                    sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
-                    sampled_data.append(sampled_data_single)
-                    sampled_label.extend([c_id] * num_sampled_pcls)
-
-        elif args.ca_storage_efficient_method == 'multi-centroid':
-            for i in range(task_id + 1):
-                for c_id in class_mask[i]:
-                    for cluster in range(len(cls_mean[c_id])):
-                        # mean = cls_mean[c_id][cluster]
-                        # var = cls_cov[c_id][cluster]
-                        mean = cls_mean_param[c_id][cluster]
-                        var = (cls_cov_param[c_id][cluster] @ cls_cov_param[c_id][cluster].T) + 1e-4 * torch.eye(cls_cov_param[c_id][cluster].shape[0]).to(cls_cov_param[c_id][cluster].device)
-                        if var.sum() == 0:
-                            continue
-                        m = MultivariateNormal(mean.float(), var.float())
-                        sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
-                        sampled_data.append(sampled_data_single)
-                        sampled_label.extend([c_id] * num_sampled_pcls)
-
-        else:
-            raise NotImplementedError
-
+        sampled_data, sampled_label = sample_data_train(task_id, class_mask, args, device, include_current_task=True)
 
         sampled_data = torch.cat(sampled_data, dim=0).float().to(device)
         sampled_label = torch.tensor(sampled_label).long().to(device)
@@ -567,8 +579,6 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
             if args.ca_storage_efficient_method in ['covariance', 'variance']:
                 for i in range(task_id):
                     for c_id in class_mask[i]:
-                        # mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
-                        # cov = cls_cov[c_id].to(device)
                         mean = torch.tensor(cls_mean_param[c_id], dtype=torch.float64).to(device)
                         # cov = (cls_cov_param[c_id] @ cls_cov_param[c_id].T).to(device)
                         l = cls_cov_param[c_id]
@@ -621,7 +631,6 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
                         train_prototypes[c_id] = sampled_pre_features.mean(dim=0)
  
                 elif args.ca_storage_efficient_method == 'multi-centroid':
-                    num_sampled_pcls = num_sampled_pcls // args.n_centroids
                     for c_id in class_mask[task_id]:
                         cluster_features = []
                         for cluster in range(len(cls_mean[c_id])):
@@ -649,50 +658,17 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
 
                 loss = criterion(logits, target)
 
-                if cls_mean:
-                    sampled_data = []
-                    sampled_label = []
-                    num_sampled_pcls = int(args.batch_size / args.nb_classes * args.num_tasks)
+                sampled_data, sampled_label = sample_data_test(task_id, class_mask, args, device)
+                sampled_output = model(sampled_data, fc_only=True)
 
-                    if args.ca_storage_efficient_method in ['covariance', 'variance']:
-                        for i in range(task_id):
-                            for c_id in class_mask[i]:
-                                mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
-                                cov = cls_cov[c_id].to(device)
-                                if args.ca_storage_efficient_method == 'variance':
-                                    cov = torch.diag(cov)
-                                m = MultivariateNormal(mean.float(), cov.float())
-                                sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
-                                sampled_data.append(sampled_data_single)
+                sampled_test_features = sampled_output['pre_features']
+                sampled_logits = F.linear(F.normalize(sampled_test_features), F.normalize(train_prototypes))
 
-                                sampled_label.extend([c_id] * num_sampled_pcls)
+                if args.train_mask and class_mask is not None:
+                    sampled_logits = sampled_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+                sampled_loss = criterion(sampled_logits, sampled_label)
 
-                    elif args.ca_storage_efficient_method == 'multi-centroid':
-                        num_sampled_pcls = num_sampled_pcls // args.n_centroids
-                        for i in range(task_id):
-                            for c_id in class_mask[i]:
-                                for cluster in range(len(cls_mean[c_id])):
-                                    mean = cls_mean[c_id][cluster]
-                                    var = cls_cov[c_id][cluster]
-                                    if var.mean() == 0:
-                                        continue
-                                    m = MultivariateNormal(mean.float(), (torch.diag(var) + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)).float())
-                                    sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
-                                    sampled_data.append(sampled_data_single)
-                                    sampled_label.extend([c_id] * num_sampled_pcls)
-                    
-                    sampled_data = torch.cat(sampled_data, dim=0).float().to(device)
-                    sampled_label = torch.tensor(sampled_label).long().to(device)
-                    sampled_output = model(sampled_data, fc_only=True)
-
-                    sampled_test_features = sampled_output['pre_features']
-                    sampled_logits = F.linear(F.normalize(sampled_test_features), F.normalize(train_prototypes))
-
-                    if args.train_mask and class_mask is not None:
-                        sampled_logits = sampled_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
-                    sampled_loss = criterion(sampled_logits, sampled_label)
-
-                    loss += args.proto_reg * (input.shape[0] / sampled_data.shape[0]) * sampled_loss
+                loss += args.proto_reg * (input.shape[0] / sampled_data.shape[0]) * sampled_loss
 
                 optimizer.zero_grad()
                 loss.backward()
