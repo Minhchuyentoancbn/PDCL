@@ -527,7 +527,8 @@ class VisionTransformer(nn.Module):
             self.mlp = nn.Identity()
 
         # Classifier Head
-        self.fc_norm = norm_layer(embed_dim) if use_fc_norm else nn.Identity()
+        # self.fc_norm = norm_layer(embed_dim) if use_fc_norm else nn.Identity()
+        self.fc_norm = norm_layer(embed_dim)
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
         print(f'Number of classes: {num_classes}')
