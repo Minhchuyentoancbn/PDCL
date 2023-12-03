@@ -540,7 +540,7 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
 
 
 def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, task_id=-1, data_loader=None):
-    if task_id > 0:
+    if task_id > 0 and args.use_gaussian:
         # # Freeze MLP and model head
         # model.mlp.requires_grad_(False)
         # model.head.requires_grad_(False)
