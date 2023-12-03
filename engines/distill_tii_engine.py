@@ -631,12 +631,7 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
                             if l.sum() == 0:
                                 continue
                             sampled_data_single = mean.float() + (torch.randn((num_sampled_pcls, cls_mean_param[c_id][cluster].shape[0]), device=device) @ l.T.float())
-                            if i < task_id:
-                                with torch.no_grad():
-                                    sampled_output = model(sampled_data_single, fc_only=True)
-                            else:
-                                sampled_output = model(sampled_data_single, fc_only=True)
-
+                            sampled_output = model(sampled_data_single, fc_only=True)
                             sampled_pre_features = sampled_output['pre_features']
                             cluster_features.append(sampled_pre_features)
                         
