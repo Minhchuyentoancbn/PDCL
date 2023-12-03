@@ -571,7 +571,7 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
                             if args.ca_storage_efficient_method == 'variance':
                                 l = torch.linalg.cholesky(torch.diag(torch.diag(cls_cov_param[c_id])))
 
-                            sampled_data_single = mean + torch.randn((num_sampled_pcls, cls_mean_param[c_id].shape[0]), device=device) @ l.T
+                            sampled_data_single = mean.float() + (torch.randn((num_sampled_pcls, cls_mean_param[c_id].shape[0]), device=device) @ l.T).float()
 
                             with torch.no_grad():
                                 sampled_output = model(sampled_data_single, fc_only=True)
@@ -594,7 +594,7 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
                                     continue
                                 # m = MultivariateNormal(mean.float(), var.float())
                                 # sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
-                                sampled_data_single = mean + torch.randn((num_sampled_pcls, cls_mean_param[c_id][cluster].shape[0]), device=device) @ l.T
+                                sampled_data_single = mean.float() + (torch.randn((num_sampled_pcls, cls_mean_param[c_id][cluster].shape[0]), device=device) @ l.T).float()
                                 with torch.no_grad():
                                     sampled_output = model(sampled_data_single, fc_only=True)
                                     sampled_pre_features = sampled_output['pre_features']
