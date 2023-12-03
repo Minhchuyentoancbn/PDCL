@@ -655,7 +655,8 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
                 with torch.no_grad():
                     output = model(input)
                 test_features = output['pre_features']
-                logits = F.linear(F.normalize(test_features), F.normalize(train_prototypes))
+                # logits = F.linear(F.normalize(test_features), F.normalize(train_prototypes))
+                logits = F.linear(test_features, train_prototypes)
                 
                 if args.train_mask and class_mask is not None:
                     logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
@@ -668,7 +669,8 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
                     sampled_output = model(sampled_data, fc_only=True)
 
                 sampled_test_features = sampled_output['pre_features']
-                sampled_logits = F.linear(F.normalize(sampled_test_features), F.normalize(train_prototypes))
+                # sampled_logits = F.linear(F.normalize(sampled_test_features), F.normalize(train_prototypes))
+                sampled_logits = F.linear(sampled_test_features, train_prototypes)
 
                 if args.train_mask and class_mask is not None:
                     sampled_logits = sampled_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
