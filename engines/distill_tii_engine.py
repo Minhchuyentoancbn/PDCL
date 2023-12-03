@@ -125,10 +125,11 @@ def sample_data_train(task_id, class_mask, args, device, include_current_task=Tr
     sampled_data = []
     sampled_label = []
 
-    if include_current_task:
-        num_sampled_pcls = args.batch_size
-    else:
-        num_sampled_pcls = int(args.batch_size / args.nb_classes * args.num_tasks)
+    # if include_current_task:
+    #     num_sampled_pcls = args.batch_size
+    # else:
+    #     num_sampled_pcls = int(args.batch_size / args.nb_classes * args.num_tasks)
+    num_sampled_pcls = args.batch_size
 
     max_task = task_id + 1 if include_current_task else task_id
 
@@ -171,7 +172,8 @@ def sample_data_train(task_id, class_mask, args, device, include_current_task=Tr
 def sample_data_test(task_id, class_mask, args, device):
     sampled_data = []
     sampled_label = []
-    num_sampled_pcls = int(args.batch_size / args.nb_classes * args.num_tasks)
+    # num_sampled_pcls = int(args.batch_size / args.nb_classes * args.num_tasks)
+    num_sampled_pcls = args.batch_size
 
     if args.ca_storage_efficient_method in ['covariance', 'variance']:
         for i in range(task_id):
@@ -577,7 +579,7 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
             # Compute class mean for each class seen so far
             train_prototypes = torch.ones((args.nb_classes, 768), device=device)
 
-            num_sampled_pcls = args.proto_num
+            num_sampled_pcls = args.batch_size
 
             if args.ca_storage_efficient_method in ['covariance', 'variance']:
                 for i in range(task_id):
