@@ -623,7 +623,8 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
                         if args.ca_storage_efficient_method == 'variance':
                             l = torch.linalg.cholesky(torch.diag(torch.diag(cls_cov_param[c_id])))
                         sampled_data_single = mean.float() + (torch.randn((num_sampled_pcls, cls_mean_param[c_id].shape[0]), device=device) @ l.T.float())
-                        sampled_output = model(sampled_data_single, fc_only=True)
+                        with torch.no_grad():
+                            sampled_output = model(sampled_data_single, fc_only=True)
                         sampled_pre_features = sampled_output['pre_features']
                         train_prototypes[c_id] = sampled_pre_features.mean(dim=0)
  
@@ -636,7 +637,8 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
                             if l.sum() == 0:
                                 continue
                             sampled_data_single = mean.float() + (torch.randn((num_sampled_pcls, cls_mean_param[c_id][cluster].shape[0]), device=device) @ l.T.float())
-                            sampled_output = model(sampled_data_single, fc_only=True)
+                            with torch.no_grad():
+                                sampled_output = model(sampled_data_single, fc_only=True)
                             sampled_pre_features = sampled_output['pre_features']
                             cluster_features.append(sampled_pre_features)
                         
@@ -646,7 +648,8 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
 
                 input = input.to(device, non_blocking=True)
                 target = target.to(device, non_blocking=True)
-                output = model(input)
+                with torch.no_grad():
+                    output = model(input)
                 test_features = output['pre_features']
                 logits = F.linear(F.normalize(test_features), F.normalize(train_prototypes))
                 
