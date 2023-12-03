@@ -534,6 +534,9 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
         model.mlp.requires_grad_(False)
         model.head.requires_grad_(False)
         model.fc_norm.requires_grad_(False)
+        model.mlp = model.mlp.detach()
+        model.head = model.head.detach()
+        model.fc_norm = model.fc_norm.detach()
 
 
         run_epochs = args.proto_epochs
@@ -705,6 +708,9 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
     model.mlp.requires_grad_(True)
     model.head.requires_grad_(True)
     model.fc_norm.requires_grad_(True)
+    model.mlp = model.mlp.detach()
+    model.head = model.head.detach()
+    model.fc_norm = model.fc_norm.detach()
 
 
 
