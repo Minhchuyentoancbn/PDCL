@@ -620,7 +620,7 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
                         cluster_features = torch.cat(cluster_features, dim=0)
                         train_prototypes[c_id] = cluster_features.mean(dim=0)
 
-            # Sample test data
+            
             for input, target in data_loader:
                 if args.ca_storage_efficient_method in ['covariance', 'variance']:
                     for c_id in class_mask[task_id]:
@@ -629,8 +629,7 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
                         if args.ca_storage_efficient_method == 'variance':
                             l = torch.linalg.cholesky(torch.diag(torch.diag(cls_cov_param[c_id])))
                         sampled_data_single = mean.float() + (torch.randn((num_sampled_pcls, cls_mean_param[c_id].shape[0]), device=device) @ l.T.float())
-                        with torch.no_grad():
-                            sampled_output = model(sampled_data_single, fc_only=True)
+                        sampled_output = model(sampled_data_single, fc_only=True)
                         sampled_pre_features = sampled_output['pre_features']
                         train_prototypes[c_id] = sampled_pre_features.mean(dim=0)
  
@@ -643,8 +642,7 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
                             if l.sum() == 0:
                                 continue
                             sampled_data_single = mean.float() + (torch.randn((num_sampled_pcls, cls_mean_param[c_id][cluster].shape[0]), device=device) @ l.T.float())
-                            with torch.no_grad():
-                                sampled_output = model(sampled_data_single, fc_only=True)
+                            sampled_output = model(sampled_data_single, fc_only=True)
                             sampled_pre_features = sampled_output['pre_features']
                             cluster_features.append(sampled_pre_features)
                         
@@ -664,8 +662,10 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
 
                 loss = criterion(logits, target)
 
+                # Sample test data
                 sampled_data, sampled_label = sample_data_test(task_id, class_mask, args, device)
-                sampled_output = model(sampled_data, fc_only=True)
+                with torch.no_grad():
+                    sampled_output = model(sampled_data, fc_only=True)
 
                 sampled_test_features = sampled_output['pre_features']
                 sampled_logits = F.linear(F.normalize(sampled_test_features), F.normalize(train_prototypes))
