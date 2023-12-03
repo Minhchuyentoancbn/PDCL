@@ -566,12 +566,12 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
                             # mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
                             # cov = cls_cov[c_id].to(device)
                             mean = torch.tensor(cls_mean_param[c_id], dtype=torch.float64).to(device)
-                            cov = (cls_cov_param[c_id] @ cls_cov_param[c_id].T).to(device)
+                            # cov = (cls_cov_param[c_id] @ cls_cov_param[c_id].T).to(device)
+                            l = cls_cov_param[c_id]
                             if args.ca_storage_efficient_method == 'variance':
-                                cov = torch.diag(torch.diag(cov))
-                            m = MultivariateNormal(mean.float(), cov.float())
-                            sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
-                            sampled_data_single = sampled_data_single.to(device)
+                                l = torch.linalg.cholesky(torch.diag(torch.diag(cls_cov_param[c_id])))
+
+                            sampled_data_single = mean + torch.randn((num_sampled_pcls, cls_mean_param[c_id].shape[0]), device=device) @ l.T
 
                             with torch.no_grad():
                                 sampled_output = model(sampled_data_single, fc_only=True)
@@ -588,11 +588,13 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
                                 # mean = cls_mean[c_id][cluster]
                                 # var = cls_cov[c_id][cluster]
                                 mean = cls_mean_param[c_id][cluster]
-                                var = (cls_cov_param[c_id][cluster] @ cls_cov_param[c_id][cluster].T)
-                                if var.sum() == 0:
+                                # var = (cls_cov_param[c_id][cluster] @ cls_cov_param[c_id][cluster].T)
+                                l = cls_cov_param[c_id][cluster]
+                                if l.sum() == 0:
                                     continue
-                                m = MultivariateNormal(mean.float(), var.float())
-                                sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
+                                # m = MultivariateNormal(mean.float(), var.float())
+                                # sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
+                                sampled_data_single = mean + torch.randn((num_sampled_pcls, cls_mean_param[c_id][cluster].shape[0]), device=device) @ l.T
                                 with torch.no_grad():
                                     sampled_output = model(sampled_data_single, fc_only=True)
                                     sampled_pre_features = sampled_output['pre_features']
