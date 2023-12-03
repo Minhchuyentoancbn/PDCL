@@ -466,11 +466,11 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
     print('-' * 20)
     network_params = [{'params': param_list, 'lr': args.ca_lr, 'weight_decay': args.weight_decay}]
     if 'mae' in args.model or 'beit' in args.model:
-        proto_optimizer = optim.AdamW(network_params, lr=args.ca_lr / 10, weight_decay=args.weight_decay)
+        optimizer = optim.AdamW(network_params, lr=args.ca_lr / 10, weight_decay=args.weight_decay)
     else:
-        proto_optimizer = optim.SGD(network_params, lr=args.ca_lr, momentum=0.9, weight_decay=5e-4)
+        optimizer = optim.SGD(network_params, lr=args.ca_lr, momentum=0.9, weight_decay=5e-4)
 
-    proto_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=proto_optimizer, T_max=run_epochs)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=run_epochs)
     criterion = nn.CrossEntropyLoss().to(device)
 
     for i in range(task_id):
@@ -521,39 +521,45 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
                 print("Loss is {}, stopping training".format(loss.item()))
                 sys.exit(1)
 
-            proto_optimizer.zero_grad()
+            optimizer.zero_grad()
             loss.backward()
-            proto_optimizer.step()
+            optimizer.step()
             torch.cuda.synchronize()
 
             metric_logger.update(Loss=loss.item())
-            metric_logger.update(Lr=proto_optimizer.param_groups[0]["lr"])
+            metric_logger.update(Lr=optimizer.param_groups[0]["lr"])
             metric_logger.meters['Acc@1'].update(acc1.item(), n=inp.shape[0])
             metric_logger.meters['Acc@5'].update(acc5.item(), n=inp.shape[0])
 
             # gather the stats from all processes
         metric_logger.synchronize_between_processes()
         print("Averaged stats:", metric_logger)
-        proto_scheduler.step()
+        scheduler.step()
 
 
 def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, task_id=-1, data_loader=None):
     if task_id > 0:
-        # Freeze MLP and model head
-        model.mlp.requires_grad_(False)
-        model.head.requires_grad_(False)
-        model.fc_norm.requires_grad_(False)
+        # # Freeze MLP and model head
+        # model.mlp.requires_grad_(False)
+        # model.head.requires_grad_(False)
+        # model.fc_norm.requires_grad_(False)
+
+        param_list = [p for p in model.parameters() if p.requires_grad]
+        network_params = [{'params': param_list, 'lr': args.ca_lr, 'weight_decay': args.weight_decay}]
 
         run_epochs = args.proto_epochs
         print('-' * 20)
         print('Start updating prototypes')
         print('-' * 20)
         if 'mae' in args.model or 'beit' in args.model:
-            optimizer = optim.AdamW(learnable_prototypes, lr=args.proto_lr / 10)
+            optimizer = optim.AdamW(network_params, lr=args.ca_lr / 10, weight_decay=args.weight_decay)
+            proto_optimizer = optim.AdamW(learnable_prototypes, lr=args.proto_lr / 10)
         else:
-            optimizer = optim.SGD(learnable_prototypes, lr=args.proto_lr, momentum=0.9)
+            optimizer = optim.SGD(network_params, lr=args.ca_lr, momentum=0.9, weight_decay=5e-4)
+            proto_optimizer = optim.SGD(learnable_prototypes, lr=args.proto_lr, momentum=0.9)
 
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=run_epochs)
+        proto_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=proto_optimizer, T_max=run_epochs)
         criterion = nn.CrossEntropyLoss().to(device) 
 
         if args.train_mask and class_mask is not None:
@@ -670,12 +676,13 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
 
                 loss += args.proto_reg * (input.shape[0] / sampled_data.shape[0]) * sampled_loss
 
+                proto_optimizer.zero_grad()
                 optimizer.zero_grad()
                 loss.backward(retain_graph=True)
                 assert learnable_prototypes[0].grad is not None, 'No gradient for learnable prototypes'
                 assert learnable_prototypes[1].grad is not None, 'No gradient for learnable prototypes'
-                nn.utils.clip_grad_norm_(learnable_prototypes, args.clip_grad)
                 optimizer.step()
+                proto_optimizer.step()
                 torch.cuda.synchronize()
 
                 if not math.isfinite(loss.item()):
@@ -683,23 +690,25 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
                     sys.exit(1)
                 acc1, acc5 = accuracy(logits, target, topk=(1, 5))
                 metric_logger.update(Loss=loss.item())
-                metric_logger.update(Lr=optimizer.param_groups[0]["lr"])
+                metric_logger.update(Lr=proto_optimizer.param_groups[0]["lr"])
                 metric_logger.meters['Acc@1'].update(acc1.item(), n=input.shape[0])
                 metric_logger.meters['Acc@5'].update(acc5.item(), n=input.shape[0])
         
             metric_logger.synchronize_between_processes()
             print("Averaged stats:", metric_logger)
-            scheduler.step()        
+
+            scheduler.step()
+            proto_scheduler.step()        
 
     print('-' * 20)
     # Freeze learnable prototypes
     for param in learnable_prototypes:
         param.requires_grad = False
 
-    # Unfreeze MLP and model head
-    model.mlp.requires_grad_(True)
-    model.head.requires_grad_(True)
-    model.fc_norm.requires_grad_(True)
+    # # Unfreeze MLP and model head
+    # model.mlp.requires_grad_(True)
+    # model.head.requires_grad_(True)
+    # model.fc_norm.requires_grad_(True)
 
 
 
