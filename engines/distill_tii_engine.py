@@ -564,7 +564,7 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
             train_prototypes = torch.ones((args.nb_classes, 768), device=device)
 
             if cls_mean:
-                num_sampled_pcls = args.batch_size
+                num_sampled_pcls = args.proto_num
 
                 if args.ca_storage_efficient_method in ['covariance', 'variance']:
                     for i in range(task_id + 1):
@@ -679,6 +679,7 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
                     optimizer.zero_grad()
                     loss.backward(retain_graph=True)
                     assert learnable_prototypes[0].grad is not None, 'No gradient for learnable prototypes'
+                    assert learnable_prototypes[1].grad is not None, 'No gradient for learnable prototypes'
                     nn.utils.clip_grad_norm_(learnable_prototypes, args.clip_grad)
                     optimizer.step()
                     torch.cuda.synchronize()
