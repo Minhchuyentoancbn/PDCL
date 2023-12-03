@@ -489,9 +489,6 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
 
         sampled_data, sampled_label = sample_data_train(task_id, class_mask, args, device, include_current_task=True)
 
-        sampled_data = torch.cat(sampled_data, dim=0).float().to(device)
-        sampled_label = torch.tensor(sampled_label).long().to(device)
-
         inputs = sampled_data
         targets = sampled_label
 
