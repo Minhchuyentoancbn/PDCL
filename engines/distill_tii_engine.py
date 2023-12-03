@@ -563,139 +563,165 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
             # Compute class mean for each class seen so far
             train_prototypes = torch.ones((args.nb_classes, 768), device=device)
 
-            if cls_mean:
-                num_sampled_pcls = args.proto_num
+            num_sampled_pcls = args.proto_num
 
+            if args.ca_storage_efficient_method in ['covariance', 'variance']:
+                for i in range(task_id):
+                    for c_id in class_mask[i]:
+                        # mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
+                        # cov = cls_cov[c_id].to(device)
+                        mean = torch.tensor(cls_mean_param[c_id], dtype=torch.float64).to(device)
+                        # cov = (cls_cov_param[c_id] @ cls_cov_param[c_id].T).to(device)
+                        l = cls_cov_param[c_id]
+                        if args.ca_storage_efficient_method == 'variance':
+                            l = torch.linalg.cholesky(torch.diag(torch.diag(cls_cov_param[c_id])))
+
+                        sampled_data_single = mean.float() + (torch.randn((num_sampled_pcls, cls_mean_param[c_id].shape[0]), device=device) @ l.T.float())
+
+                        with torch.no_grad():
+                            sampled_output = model(sampled_data_single, fc_only=True)
+                        sampled_pre_features = sampled_output['pre_features']
+                        train_prototypes[c_id] = sampled_pre_features.mean(dim=0)
+        
+            elif args.ca_storage_efficient_method == 'multi-centroid':
+                num_sampled_pcls = num_sampled_pcls // args.n_centroids
+                for i in range(task_id):
+                    for c_id in class_mask[i]:
+                        cluster_features = []
+                        for cluster in range(len(cls_mean[c_id])):
+                            # mean = cls_mean[c_id][cluster]
+                            # var = cls_cov[c_id][cluster]
+                            mean = cls_mean_param[c_id][cluster]
+                            # var = (cls_cov_param[c_id][cluster] @ cls_cov_param[c_id][cluster].T)
+                            l = cls_cov_param[c_id][cluster]
+                            if l.sum() == 0:
+                                continue
+                            # m = MultivariateNormal(mean.float(), var.float())
+                            # sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
+                            sampled_data_single = mean.float() + (torch.randn((num_sampled_pcls, cls_mean_param[c_id][cluster].shape[0]), device=device) @ l.T.float())
+                            with torch.no_grad():
+                                sampled_output = model(sampled_data_single, fc_only=True)
+
+                            sampled_pre_features = sampled_output['pre_features']
+                            cluster_features.append(sampled_pre_features)
+                        
+                        cluster_features = torch.cat(cluster_features, dim=0)
+                        train_prototypes[c_id] = cluster_features.mean(dim=0)
+
+            # Sample test data
+            for input, target in data_loader:
                 if args.ca_storage_efficient_method in ['covariance', 'variance']:
-                    for i in range(task_id + 1):
-                        for c_id in class_mask[i]:
-                            # mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
-                            # cov = cls_cov[c_id].to(device)
-                            mean = torch.tensor(cls_mean_param[c_id], dtype=torch.float64).to(device)
-                            # cov = (cls_cov_param[c_id] @ cls_cov_param[c_id].T).to(device)
-                            l = cls_cov_param[c_id]
-                            if args.ca_storage_efficient_method == 'variance':
-                                l = torch.linalg.cholesky(torch.diag(torch.diag(cls_cov_param[c_id])))
-
-                            sampled_data_single = mean.float() + (torch.randn((num_sampled_pcls, cls_mean_param[c_id].shape[0]), device=device) @ l.T.float())
-
+                    for c_id in class_mask[task_id]:
+                        mean = torch.tensor(cls_mean_param[c_id], dtype=torch.float64).to(device)
+                        l = cls_cov_param[c_id]
+                        if args.ca_storage_efficient_method == 'variance':
+                            l = torch.linalg.cholesky(torch.diag(torch.diag(cls_cov_param[c_id])))
+                        sampled_data_single = mean.float() + (torch.randn((num_sampled_pcls, cls_mean_param[c_id].shape[0]), device=device) @ l.T.float())
+                        sampled_output = model(sampled_data_single, fc_only=True)
+                        sampled_pre_features = sampled_output['pre_features']
+                        train_prototypes[c_id] = sampled_pre_features.mean(dim=0)
+ 
+                elif args.ca_storage_efficient_method == 'multi-centroid':
+                    num_sampled_pcls = num_sampled_pcls // args.n_centroids
+                    for c_id in class_mask[task_id]:
+                        cluster_features = []
+                        for cluster in range(len(cls_mean[c_id])):
+                            mean = cls_mean_param[c_id][cluster]
+                            l = cls_cov_param[c_id][cluster]
+                            if l.sum() == 0:
+                                continue
+                            sampled_data_single = mean.float() + (torch.randn((num_sampled_pcls, cls_mean_param[c_id][cluster].shape[0]), device=device) @ l.T.float())
                             if i < task_id:
                                 with torch.no_grad():
                                     sampled_output = model(sampled_data_single, fc_only=True)
                             else:
                                 sampled_output = model(sampled_data_single, fc_only=True)
+
                             sampled_pre_features = sampled_output['pre_features']
-                            train_prototypes[c_id] = sampled_pre_features.mean(dim=0)
+                            cluster_features.append(sampled_pre_features)
+                        
+                        cluster_features = torch.cat(cluster_features, dim=0)
+                        train_prototypes[c_id] = cluster_features.mean(dim=0)
 
-                            
-                elif args.ca_storage_efficient_method == 'multi-centroid':
-                    num_sampled_pcls = num_sampled_pcls // args.n_centroids
-                    for i in range(task_id + 1):
-                        for c_id in class_mask[i]:
-                            cluster_features = []
-                            for cluster in range(len(cls_mean[c_id])):
-                                # mean = cls_mean[c_id][cluster]
-                                # var = cls_cov[c_id][cluster]
-                                mean = cls_mean_param[c_id][cluster]
-                                # var = (cls_cov_param[c_id][cluster] @ cls_cov_param[c_id][cluster].T)
-                                l = cls_cov_param[c_id][cluster]
-                                if l.sum() == 0:
-                                    continue
-                                # m = MultivariateNormal(mean.float(), var.float())
-                                # sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
-                                sampled_data_single = mean.float() + (torch.randn((num_sampled_pcls, cls_mean_param[c_id][cluster].shape[0]), device=device) @ l.T.float())
-                                if i < task_id:
-                                    with torch.no_grad():
-                                        sampled_output = model(sampled_data_single, fc_only=True)
-                                else:
-                                    sampled_output = model(sampled_data_single, fc_only=True)
 
-                                sampled_pre_features = sampled_output['pre_features']
-                                cluster_features.append(sampled_pre_features)
-                            
-                            cluster_features = torch.cat(cluster_features, dim=0)
-                            train_prototypes[c_id] = cluster_features.mean(dim=0)
+                input = input.to(device, non_blocking=True)
+                target = target.to(device, non_blocking=True)
 
-                # Sample test data
-                for input, target in data_loader:
-                    input = input.to(device, non_blocking=True)
-                    target = target.to(device, non_blocking=True)
+                output = model(input)
 
-                    output = model(input)
+                test_features = output['pre_features']
+                logits = F.linear(F.normalize(test_features), F.normalize(train_prototypes))
+                
+                if args.train_mask and class_mask is not None:
+                    logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-                    test_features = output['pre_features']
-                    logits = F.linear(F.normalize(test_features), F.normalize(train_prototypes))
-                    
-                    if args.train_mask and class_mask is not None:
-                        logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+                loss = criterion(logits, target)
 
-                    loss = criterion(logits, target)
+                if cls_mean:
+                    sampled_data = []
+                    sampled_label = []
+                    num_sampled_pcls = int(args.batch_size / args.nb_classes * args.num_tasks)
 
-                    if cls_mean:
-                        sampled_data = []
-                        sampled_label = []
-                        num_sampled_pcls = int(args.batch_size / args.nb_classes * args.num_tasks)
+                    if args.ca_storage_efficient_method in ['covariance', 'variance']:
+                        for i in range(task_id):
+                            for c_id in class_mask[i]:
+                                mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
+                                cov = cls_cov[c_id].to(device)
+                                if args.ca_storage_efficient_method == 'variance':
+                                    cov = torch.diag(cov)
+                                m = MultivariateNormal(mean.float(), cov.float())
+                                sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
+                                sampled_data.append(sampled_data_single)
 
-                        if args.ca_storage_efficient_method in ['covariance', 'variance']:
-                            for i in range(task_id):
-                                for c_id in class_mask[i]:
-                                    mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
-                                    cov = cls_cov[c_id].to(device)
-                                    if args.ca_storage_efficient_method == 'variance':
-                                        cov = torch.diag(cov)
-                                    m = MultivariateNormal(mean.float(), cov.float())
+                                sampled_label.extend([c_id] * num_sampled_pcls)
+
+                    elif args.ca_storage_efficient_method == 'multi-centroid':
+                        num_sampled_pcls = num_sampled_pcls // args.n_centroids
+                        for i in range(task_id):
+                            for c_id in class_mask[i]:
+                                for cluster in range(len(cls_mean[c_id])):
+                                    mean = cls_mean[c_id][cluster]
+                                    var = cls_cov[c_id][cluster]
+                                    if var.mean() == 0:
+                                        continue
+                                    m = MultivariateNormal(mean.float(), (torch.diag(var) + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)).float())
                                     sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
                                     sampled_data.append(sampled_data_single)
-
                                     sampled_label.extend([c_id] * num_sampled_pcls)
+                    
+                    sampled_data = torch.cat(sampled_data, dim=0).float().to(device)
+                    sampled_label = torch.tensor(sampled_label).long().to(device)
+                    sampled_output = model(sampled_data, fc_only=True)
 
-                        elif args.ca_storage_efficient_method == 'multi-centroid':
-                            num_sampled_pcls = num_sampled_pcls // args.n_centroids
-                            for i in range(task_id):
-                                for c_id in class_mask[i]:
-                                    for cluster in range(len(cls_mean[c_id])):
-                                        mean = cls_mean[c_id][cluster]
-                                        var = cls_cov[c_id][cluster]
-                                        if var.mean() == 0:
-                                            continue
-                                        m = MultivariateNormal(mean.float(), (torch.diag(var) + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)).float())
-                                        sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
-                                        sampled_data.append(sampled_data_single)
-                                        sampled_label.extend([c_id] * num_sampled_pcls)
-                        
-                        sampled_data = torch.cat(sampled_data, dim=0).float().to(device)
-                        sampled_label = torch.tensor(sampled_label).long().to(device)
-                        sampled_output = model(sampled_data, fc_only=True)
+                    sampled_test_features = sampled_output['pre_features']
+                    sampled_logits = F.linear(F.normalize(sampled_test_features), F.normalize(train_prototypes))
 
-                        sampled_test_features = sampled_output['pre_features']
-                        sampled_logits = F.linear(F.normalize(sampled_test_features), F.normalize(train_prototypes))
+                    if args.train_mask and class_mask is not None:
+                        sampled_logits = sampled_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+                    sampled_loss = criterion(sampled_logits, sampled_label)
 
-                        if args.train_mask and class_mask is not None:
-                            sampled_logits = sampled_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
-                        sampled_loss = criterion(sampled_logits, sampled_label)
+                    loss += args.proto_reg * (input.shape[0] / sampled_data.shape[0]) * sampled_loss
 
-                        loss += args.proto_reg * (input.shape[0] / sampled_data.shape[0]) * sampled_loss
+                optimizer.zero_grad()
+                loss.backward(retain_graph=True)
+                assert learnable_prototypes[0].grad is not None, 'No gradient for learnable prototypes'
+                assert learnable_prototypes[1].grad is not None, 'No gradient for learnable prototypes'
+                nn.utils.clip_grad_norm_(learnable_prototypes, args.clip_grad)
+                optimizer.step()
+                torch.cuda.synchronize()
 
-                    optimizer.zero_grad()
-                    loss.backward(retain_graph=True)
-                    assert learnable_prototypes[0].grad is not None, 'No gradient for learnable prototypes'
-                    assert learnable_prototypes[1].grad is not None, 'No gradient for learnable prototypes'
-                    nn.utils.clip_grad_norm_(learnable_prototypes, args.clip_grad)
-                    optimizer.step()
-                    torch.cuda.synchronize()
-
-                    if not math.isfinite(loss.item()):
-                        print("Loss is {}, stopping training".format(loss.item()))
-                        sys.exit(1)
-                    acc1, acc5 = accuracy(logits, target, topk=(1, 5))
-                    metric_logger.update(Loss=loss.item())
-                    metric_logger.update(Lr=optimizer.param_groups[0]["lr"])
-                    metric_logger.meters['Acc@1'].update(acc1.item(), n=input.shape[0])
-                    metric_logger.meters['Acc@5'].update(acc5.item(), n=input.shape[0])
-            
-                metric_logger.synchronize_between_processes()
-                print("Averaged stats:", metric_logger)
-                scheduler.step()        
+                if not math.isfinite(loss.item()):
+                    print("Loss is {}, stopping training".format(loss.item()))
+                    sys.exit(1)
+                acc1, acc5 = accuracy(logits, target, topk=(1, 5))
+                metric_logger.update(Loss=loss.item())
+                metric_logger.update(Lr=optimizer.param_groups[0]["lr"])
+                metric_logger.meters['Acc@1'].update(acc1.item(), n=input.shape[0])
+                metric_logger.meters['Acc@5'].update(acc5.item(), n=input.shape[0])
+        
+            metric_logger.synchronize_between_processes()
+            print("Averaged stats:", metric_logger)
+            scheduler.step()        
 
     print('-' * 20)
     # Freeze learnable prototypes
