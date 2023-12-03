@@ -210,7 +210,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
             loss = criterion(logits, target)
 
         optimizer.zero_grad()
-        loss.backward()
+        loss.backward(retain_graph=True)
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
         optimizer.step()
 
@@ -534,9 +534,6 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
         model.mlp.requires_grad_(False)
         model.head.requires_grad_(False)
         model.fc_norm.requires_grad_(False)
-        model.mlp = model.mlp.detach()
-        model.head = model.head.detach()
-        model.fc_norm = model.fc_norm.detach()
 
 
         run_epochs = args.proto_epochs
@@ -708,9 +705,6 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
     model.mlp.requires_grad_(True)
     model.head.requires_grad_(True)
     model.fc_norm.requires_grad_(True)
-    model.mlp = model.mlp.detach()
-    model.head = model.head.detach()
-    model.fc_norm = model.fc_norm.detach()
 
 
 
