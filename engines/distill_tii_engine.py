@@ -573,9 +573,12 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
 
                             sampled_data_single = mean.float() + (torch.randn((num_sampled_pcls, cls_mean_param[c_id].shape[0]), device=device) @ l.T.float())
 
-                            with torch.no_grad():
+                            if i < task_id:
+                                with torch.no_grad():
+                                    sampled_output = model(sampled_data_single, fc_only=True)
+                            else:
                                 sampled_output = model(sampled_data_single, fc_only=True)
-                                sampled_pre_features = sampled_output['pre_features']
+                            sampled_pre_features = sampled_output['pre_features']
                             train_prototypes[c_id] = sampled_pre_features.mean(dim=0)
 
                             
@@ -595,9 +598,13 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
                                 # m = MultivariateNormal(mean.float(), var.float())
                                 # sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
                                 sampled_data_single = mean.float() + (torch.randn((num_sampled_pcls, cls_mean_param[c_id][cluster].shape[0]), device=device) @ l.T.float())
-                                with torch.no_grad():
+                                if i < task_id:
+                                    with torch.no_grad():
+                                        sampled_output = model(sampled_data_single, fc_only=True)
+                                else:
                                     sampled_output = model(sampled_data_single, fc_only=True)
-                                    sampled_pre_features = sampled_output['pre_features']
+
+                                sampled_pre_features = sampled_output['pre_features']
                                 cluster_features.append(sampled_pre_features)
                             
                             cluster_features = torch.cat(cluster_features, dim=0)
