@@ -466,11 +466,11 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
     print('-' * 20)
     network_params = [{'params': param_list, 'lr': args.ca_lr, 'weight_decay': args.weight_decay}]
     if 'mae' in args.model or 'beit' in args.model:
-        optimizer = optim.AdamW(network_params, lr=args.ca_lr / 10, weight_decay=args.weight_decay)
+        proto_optimizer = optim.AdamW(network_params, lr=args.ca_lr / 10, weight_decay=args.weight_decay)
     else:
-        optimizer = optim.SGD(network_params, lr=args.ca_lr, momentum=0.9, weight_decay=5e-4)
+        proto_optimizer = optim.SGD(network_params, lr=args.ca_lr, momentum=0.9, weight_decay=5e-4)
 
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=run_epochs)
+    proto_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=proto_optimizer, T_max=run_epochs)
     criterion = nn.CrossEntropyLoss().to(device)
 
     for i in range(task_id):
@@ -521,20 +521,20 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
                 print("Loss is {}, stopping training".format(loss.item()))
                 sys.exit(1)
 
-            optimizer.zero_grad()
+            proto_optimizer.zero_grad()
             loss.backward()
-            optimizer.step()
+            proto_optimizer.step()
             torch.cuda.synchronize()
 
             metric_logger.update(Loss=loss.item())
-            metric_logger.update(Lr=optimizer.param_groups[0]["lr"])
+            metric_logger.update(Lr=proto_optimizer.param_groups[0]["lr"])
             metric_logger.meters['Acc@1'].update(acc1.item(), n=inp.shape[0])
             metric_logger.meters['Acc@5'].update(acc5.item(), n=inp.shape[0])
 
             # gather the stats from all processes
         metric_logger.synchronize_between_processes()
         print("Averaged stats:", metric_logger)
-        scheduler.step()
+        proto_scheduler.step()
 
 
 def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, task_id=-1, data_loader=None):
