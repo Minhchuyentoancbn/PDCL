@@ -125,11 +125,11 @@ def sample_data_train(task_id, class_mask, args, device, include_current_task=Tr
     sampled_data = []
     sampled_label = []
 
-    # if include_current_task:
-    #     num_sampled_pcls = args.batch_size
-    # else:
-    #     num_sampled_pcls = int(args.batch_size / args.nb_classes * args.num_tasks)
-    num_sampled_pcls = args.batch_size
+    if include_current_task:
+        num_sampled_pcls = args.batch_size
+    else:
+        num_sampled_pcls = int(args.batch_size / args.nb_classes * args.num_tasks)
+    # num_sampled_pcls = args.batch_size
 
     max_task = task_id + 1 if include_current_task else task_id
 
