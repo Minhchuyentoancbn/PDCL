@@ -483,8 +483,6 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
     # TODO: efficiency may be improved by encapsulating sampled data into Datasets class and using distributed sampler.
     for epoch in range(run_epochs):
 
-        sampled_data = []
-        sampled_label = []
         num_sampled_pcls = args.batch_size
 
         metric_logger = utils.MetricLogger(delimiter="  ")
@@ -574,10 +572,40 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
             not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
             not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
 
+        crct_num = 0
+        for i in range(task_id):
+            crct_num += len(class_mask[i])
+
         for epoch in range(run_epochs):
             metric_logger = utils.MetricLogger(delimiter="  ")
             metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
             metric_logger.add_meter('Loss', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
+
+            # Update optimizer
+            sampled_data, sampled_label = sample_data_train(task_id, class_mask, args, device, include_current_task=True)
+
+            inputs = sampled_data
+            targets = sampled_label
+            sf_indexes = torch.randperm(inputs.size(0))
+            inputs = inputs[sf_indexes]
+            targets = targets[sf_indexes]
+
+            for _iter in range(crct_num):
+                inp = inputs[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
+                tgt = targets[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
+
+                outputs = model(inp, fc_only=True)
+                logits = outputs['logits']
+
+                if args.train_mask and class_mask is not None:
+                    logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+
+                loss = criterion(logits, tgt)  # base criterion (CrossEntropyLoss)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+            
+
             # Compute class mean for each class seen so far
             train_prototypes = torch.ones((args.nb_classes, 768), device=device)
 
@@ -667,22 +695,22 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
 
                 loss = criterion(logits, target)
 
-                # Sample test data
-                sampled_data, sampled_label = sample_data_test(task_id, class_mask, args, device)
-                with torch.no_grad():
-                    sampled_output = model(sampled_data, fc_only=True)
-                sampled_test_features = sampled_output['pre_features']
-                # sampled_logits = F.linear(F.normalize(sampled_test_features), F.normalize(train_prototypes))
-                sampled_logits = F.linear(sampled_test_features, train_prototypes)
+                # # Sample test data
+                # sampled_data, sampled_label = sample_data_test(task_id, class_mask, args, device)
+                # with torch.no_grad():
+                #     sampled_output = model(sampled_data, fc_only=True)
+                # sampled_test_features = sampled_output['pre_features']
+                # # sampled_logits = F.linear(F.normalize(sampled_test_features), F.normalize(train_prototypes))
+                # sampled_logits = F.linear(sampled_test_features, train_prototypes)
 
-                if args.train_mask and class_mask is not None:
-                    sampled_logits = sampled_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
-                sampled_loss = criterion(sampled_logits, sampled_label)
+                # if args.train_mask and class_mask is not None:
+                #     sampled_logits = sampled_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+                # sampled_loss = criterion(sampled_logits, sampled_label)
 
-                loss += args.proto_reg * sampled_loss
+                # loss += args.proto_reg * sampled_loss
 
                 proto_optimizer.zero_grad()
-                optimizer.zero_grad()
+                # optimizer.zero_grad()
                 loss.backward(retain_graph=True)
                 assert learnable_prototypes[0].grad is not None, 'No gradient for learnable prototypes'
                 assert learnable_prototypes[1].grad is not None, 'No gradient for learnable prototypes'
@@ -691,7 +719,7 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
                 # else:
                 #     proto_optimizer.step()
                 proto_optimizer.step()
-                optimizer.step()
+                # optimizer.step()
                 torch.cuda.synchronize()
 
                 if not math.isfinite(loss.item()):
