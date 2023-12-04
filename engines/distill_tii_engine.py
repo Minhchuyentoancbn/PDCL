@@ -589,7 +589,7 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
             sf_indexes = torch.randperm(inputs.size(0))
             inputs = inputs[sf_indexes]
             targets = targets[sf_indexes]
-
+            num_sampled_pcls = args.batch_size
             for _iter in range(crct_num):
                 inp = inputs[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
                 tgt = targets[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
