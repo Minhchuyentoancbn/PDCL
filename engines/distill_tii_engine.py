@@ -139,11 +139,11 @@ def sample_data_train(task_id, class_mask, args, device, include_current_task=Tr
                 # mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
                 # cov = cls_cov[c_id].to(device)
                 mean = torch.tensor(cls_mean_param[c_id], dtype=torch.float64).to(device)
-                cov = (cls_cov_param[c_id] @ cls_cov_param[c_id].T).to(device) + 1e-4 * torch.eye(cls_cov_param[c_id].shape[0]).to(device)
+                l = cls_cov_param[c_id]
                 if args.ca_storage_efficient_method == 'variance':
-                    cov = torch.diag(torch.diag(cov))
-                m = MultivariateNormal(mean.float(), cov.float())
-                sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
+                    l = torch.linalg.cholesky(torch.diag(torch.diag(cls_cov_param[c_id])))
+
+                sampled_data_single = mean.float() + (torch.randn((num_sampled_pcls, cls_mean_param[c_id].shape[0]), device=device) @ l.T.float())
                 sampled_data.append(sampled_data_single)
                 sampled_label.extend([c_id] * num_sampled_pcls)
 
@@ -155,11 +155,13 @@ def sample_data_train(task_id, class_mask, args, device, include_current_task=Tr
                     # mean = cls_mean[c_id][cluster]
                     # var = cls_cov[c_id][cluster]
                     mean = cls_mean_param[c_id][cluster]
-                    var = (cls_cov_param[c_id][cluster] @ cls_cov_param[c_id][cluster].T) + 1e-4 * torch.eye(cls_cov_param[c_id][cluster].shape[0]).to(cls_cov_param[c_id][cluster].device)
-                    if var.sum() == 0:
+                    # var = (cls_cov_param[c_id][cluster] @ cls_cov_param[c_id][cluster].T)
+                    l = cls_cov_param[c_id][cluster]
+                    if l.sum() == 0:
                         continue
-                    m = MultivariateNormal(mean.float(), var.float())
-                    sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
+                    # m = MultivariateNormal(mean.float(), var.float())
+                    # sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
+                    sampled_data_single = mean.float() + (torch.randn((num_sampled_pcls, cls_mean_param[c_id][cluster].shape[0]), device=device) @ l.T.float())
                     sampled_data.append(sampled_data_single)
                     sampled_label.extend([c_id] * num_sampled_pcls)
     
