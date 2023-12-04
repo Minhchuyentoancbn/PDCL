@@ -582,7 +582,8 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
             metric_logger.add_meter('Loss', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
 
             # Update optimizer
-            sampled_data, sampled_label = sample_data_train(task_id, class_mask, args, device, include_current_task=True)
+            with torch.no_grad():
+                sampled_data, sampled_label = sample_data_train(task_id, class_mask, args, device, include_current_task=True)
 
             inputs = sampled_data
             targets = sampled_label
