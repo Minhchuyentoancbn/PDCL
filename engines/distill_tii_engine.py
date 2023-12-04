@@ -657,14 +657,10 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
                 input = input.to(device, non_blocking=True)
                 target = target.to(device, non_blocking=True)
                 # logits = F.linear(F.normalize(test_features), F.normalize(train_prototypes))
-                if i % (args.proto_interval + 1) != 0:
+                with torch.no_grad():
                     output = model(input)
-                    logits = output['logits']
-                else:
-                    with torch.no_grad():
-                        output = model(input)
-                    test_features = output['pre_features']
-                    logits = F.linear(test_features, train_prototypes)
+                test_features = output['pre_features']
+                logits = F.linear(test_features, train_prototypes)
                 
                 if args.train_mask and class_mask is not None:
                     logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
@@ -673,15 +669,11 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
 
                 # Sample test data
                 sampled_data, sampled_label = sample_data_test(task_id, class_mask, args, device)
-                if i % (args.proto_interval + 1) != 0:
-                    sampled_output = model(sampled_data)
-                    sampled_logits = sampled_output['logits']
-                else:
-                    with torch.no_grad():
-                        sampled_output = model(sampled_data, fc_only=True)
-                    sampled_test_features = sampled_output['pre_features']
-                    # sampled_logits = F.linear(F.normalize(sampled_test_features), F.normalize(train_prototypes))
-                    sampled_logits = F.linear(sampled_test_features, train_prototypes)
+                with torch.no_grad():
+                    sampled_output = model(sampled_data, fc_only=True)
+                sampled_test_features = sampled_output['pre_features']
+                # sampled_logits = F.linear(F.normalize(sampled_test_features), F.normalize(train_prototypes))
+                sampled_logits = F.linear(sampled_test_features, train_prototypes)
 
                 if args.train_mask and class_mask is not None:
                     sampled_logits = sampled_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
@@ -694,10 +686,12 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
                 loss.backward(retain_graph=True)
                 assert learnable_prototypes[0].grad is not None, 'No gradient for learnable prototypes'
                 assert learnable_prototypes[1].grad is not None, 'No gradient for learnable prototypes'
-                if i % (args.proto_interval + 1) != 0:
-                    optimizer.step()
-                else:
-                    proto_optimizer.step()
+                # if i % (args.proto_interval + 1) != 0:
+                #     optimizer.step()
+                # else:
+                #     proto_optimizer.step()
+                proto_optimizer.step()
+                optimizer.step()
                 torch.cuda.synchronize()
 
                 if not math.isfinite(loss.item()):
