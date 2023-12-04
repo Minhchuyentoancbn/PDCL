@@ -249,7 +249,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
                     sampled_logits = sampled_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
                 sampled_loss = criterion(sampled_logits, sampled_label)
 
-                loss += args.reg * (input.shape[0] / sampled_data.shape[0]) * sampled_loss
+                loss += args.reg * sampled_loss
 
         else:
             # here is the trick to mask out classes of non-current tasks
@@ -680,7 +680,7 @@ def update_prototypes(model: torch.nn.Module, args, device, class_mask=None, tas
                     sampled_logits = sampled_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
                 sampled_loss = criterion(sampled_logits, sampled_label)
 
-                loss += args.proto_reg * (input.shape[0] / sampled_data.shape[0]) * sampled_loss
+                loss += args.proto_reg * sampled_loss
 
                 proto_optimizer.zero_grad()
                 optimizer.zero_grad()
