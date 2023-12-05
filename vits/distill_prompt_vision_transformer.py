@@ -832,7 +832,10 @@ def _load_weights(model: VisionTransformer, checkpoint_path: str, prefix: str = 
     model.norm.bias.copy_(_n2p(w[f'{prefix}Transformer/encoder_norm/bias']))
     if isinstance(model.head, nn.Linear) and model.head.bias.shape[0] == w[f'{prefix}head/bias'].shape[-1]:
         model.head.weight.copy_(_n2p(w[f'{prefix}head/kernel']))
-        model.head.bias.copy_(_n2p(w[f'{prefix}head/bias']))
+        try:
+            model.head.bias.copy_(_n2p(w[f'{prefix}head/bias']))
+        except Exception as e:
+            pass
     # NOTE representation layer has been removed, not used in latest 21k/1k pretrained weights
     # if isinstance(getattr(model.pre_logits, 'fc', None), nn.Linear) and f'{prefix}pre_logits/bias' in w:
     #     model.pre_logits.fc.weight.copy_(_n2p(w[f'{prefix}pre_logits/kernel']))
