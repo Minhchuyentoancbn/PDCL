@@ -229,37 +229,37 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
         output = model(input)
         logits = output['logits']
         
-        if args.use_gaussian:
-            if args.train_mask and class_mask is not None:
-                mask = []
-                for id in range(task_id+1):
-                    mask.extend(class_mask[id])
-                # print(mask)
-                not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
-                not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
-                logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+        # if args.use_gaussian:
+        #     if args.train_mask and class_mask is not None:
+        #         mask = []
+        #         for id in range(task_id+1):
+        #             mask.extend(class_mask[id])
+        #         # print(mask)
+        #         not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
+        #         not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+        #         logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-            loss = criterion(logits, target)
+        #     loss = criterion(logits, target)
 
-            if cls_mean:
-                sampled_data, sampled_label = sample_data_train(task_id, class_mask, args, device, include_current_task=False)
-                sampled_output = model(sampled_data, fc_only=True)
-                sampled_logits = sampled_output['logits']
-                if args.train_mask and class_mask is not None:
-                    sampled_logits = sampled_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
-                sampled_loss = criterion(sampled_logits, sampled_label)
+        #     if cls_mean:
+        #         sampled_data, sampled_label = sample_data_train(task_id, class_mask, args, device, include_current_task=False)
+        #         sampled_output = model(sampled_data, fc_only=True)
+        #         sampled_logits = sampled_output['logits']
+        #         if args.train_mask and class_mask is not None:
+        #             sampled_logits = sampled_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+        #         sampled_loss = criterion(sampled_logits, sampled_label)
 
-                loss += args.reg * sampled_loss
+        #         loss += args.reg * sampled_loss
 
-        else:
-            # here is the trick to mask out classes of non-current tasks
-            if args.train_mask and class_mask is not None:
-                mask = class_mask[task_id]
-                not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
-                not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
-                logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+        # else:
+        # here is the trick to mask out classes of non-current tasks
+        if args.train_mask and class_mask is not None:
+            mask = class_mask[task_id]
+            not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
+            not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+            logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-            loss = criterion(logits, target)
+        loss = criterion(logits, target)
 
         optimizer.zero_grad()
         loss.backward()
