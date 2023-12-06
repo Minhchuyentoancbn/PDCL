@@ -165,8 +165,7 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
 def sample_data_test(task_id, class_mask, args, device):
     sampled_data = []
     sampled_label = []
-    num_sampled_pcls = int(args.batch_size / args.nb_classes * args.num_tasks)
-    # num_sampled_pcls = args.batch_size
+    num_sampled_pcls = args.batch_size
 
     if args.ca_storage_efficient_method in ['covariance', 'variance']:
         for i in range(task_id):
