@@ -20,185 +20,6 @@ import utils
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 
-def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Module,
-                       criterion, data_loader: Iterable, data_loader_per_cls: Iterable,
-                       optimizer: torch.optim.Optimizer, lr_scheduler,
-                       device: torch.device,
-                       class_mask=None, target_task_map=None, args=None, ):
-    # create matrix to save end-of-task accuracies
-    acc_matrix = np.zeros((args.num_tasks, args.num_tasks))
-    pre_ca_acc_matrix = np.zeros((args.num_tasks, args.num_tasks))
-    global cls_mean
-    global cls_cov
-
-    cls_mean = dict()
-    cls_cov = dict()
-
-    for task_id in range(args.num_tasks):
-
-        # Create new optimizer for each task to clear optimizer status
-        if task_id > 0 and args.reinit_optimizer:
-            optimizer = create_optimizer(args, model)
-            if args.sched != 'constant':
-                lr_scheduler, _ = create_scheduler(args, optimizer)
-            elif args.sched == 'constant':
-                lr_scheduler = None
-
-        for epoch in range(args.epochs):
-            # Train model
-            train_stats = train_one_epoch(model=model, criterion=criterion,
-                                          data_loader=data_loader[task_id]['train'], optimizer=optimizer,
-                                          device=device, epoch=epoch, max_norm=args.clip_grad,
-                                          set_training_mode=True, task_id=task_id, class_mask=class_mask, args=args,
-                                          )
-
-            if lr_scheduler:
-                lr_scheduler.step(epoch)
-
-        print('-' * 20)
-        print(f'Evaluate task {task_id + 1} before CA')
-        test_stats_pre_ca = evaluate_till_now(model=model, data_loader=data_loader,
-                                              device=device,
-                                              task_id=task_id, class_mask=class_mask, target_task_map=target_task_map,
-                                              acc_matrix=pre_ca_acc_matrix, args=args)
-        print('-' * 20)
-
-        # TODO compute mean and variance
-        print('-' * 20)
-        print(f'Compute mean and variance for task {task_id + 1}')
-        _compute_mean(model=model, data_loader=data_loader_per_cls, device=device, class_mask=class_mask[task_id],
-                      args=args)
-        print('-' * 20)
-
-        # TODO classifier alignment
-        if task_id > 0:
-            print('-' * 20)
-            print(f'Align classifier for task {task_id + 1}')
-            train_task_adaptive_prediction(model, args, device, class_mask, task_id)
-            print('-' * 20)
-
-        # Evaluate model
-        print('-' * 20)
-        print(f'Evaluate task {task_id + 1} after CA')
-        test_stats = evaluate_till_now(model=model, data_loader=data_loader,
-                                       device=device,
-                                       task_id=task_id, class_mask=class_mask, target_task_map=target_task_map,
-                                       acc_matrix=acc_matrix, args=args)
-        print('-' * 20)
-
-        if args.output_dir and utils.is_main_process():
-            Path(os.path.join(args.output_dir, 'checkpoint')).mkdir(parents=True, exist_ok=True)
-
-            checkpoint_path = os.path.join(args.output_dir, 'checkpoint/task{}_checkpoint.pth'.format(task_id + 1))
-            state_dict = {
-                'model': model_without_ddp.state_dict(),
-                'optimizer': optimizer.state_dict(),
-                'epoch': epoch,
-                'args': args,
-            }
-            if args.sched is not None and args.sched != 'constant':
-                state_dict['lr_scheduler'] = lr_scheduler.state_dict()
-
-            utils.save_on_master(state_dict, checkpoint_path)
-
-        log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
-                     **{f'test_{k}': v for k, v in test_stats.items()},
-                     'epoch': epoch, }
-
-        if args.output_dir and utils.is_main_process():
-            with open(os.path.join(args.output_dir,
-                                   '{}_stats.txt'.format(datetime.datetime.now().strftime('log_%Y_%m_%d_%H_%M'))),
-                      'a') as f:
-                f.write(json.dumps(log_stats) + '\n')
-
-
-# def sample_data_train(task_id, class_mask, args, device, include_current_task=True):
-#     sampled_data = []
-#     sampled_label = []
-
-#     if include_current_task:
-#         num_sampled_pcls = args.batch_size
-#     else:
-#         num_sampled_pcls = int(args.batch_size / args.nb_classes * args.num_tasks)
-#     # num_sampled_pcls = args.batch_size
-
-#     max_task = task_id + 1 if include_current_task else task_id
-
-#     if args.ca_storage_efficient_method in ['covariance', 'variance']:
-#         for i in range(max_task):
-#             for c_id in class_mask[i]:
-#                 # mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
-#                 # cov = cls_cov[c_id].to(device)
-#                 mean = torch.tensor(cls_mean_param[c_id], dtype=torch.float64).to(device)
-#                 l = cls_cov_param[c_id]
-#                 if args.ca_storage_efficient_method == 'variance':
-#                     l = torch.linalg.cholesky(torch.diag(torch.diag(cls_cov_param[c_id])))
-
-#                 sampled_data_single = mean.float() + (torch.randn((num_sampled_pcls, cls_mean_param[c_id].shape[0]), device=device) @ l.T.float())
-#                 sampled_data.append(sampled_data_single)
-#                 sampled_label.extend([c_id] * num_sampled_pcls)
-
-#     elif args.ca_storage_efficient_method == 'multi-centroid':
-#         num_sampled_pcls = num_sampled_pcls // args.n_centroids
-#         for i in range(max_task):
-#             for c_id in class_mask[i]:
-#                 for cluster in range(len(cls_mean[c_id])):
-#                     # mean = cls_mean[c_id][cluster]
-#                     # var = cls_cov[c_id][cluster]
-#                     mean = cls_mean_param[c_id][cluster]
-#                     # var = (cls_cov_param[c_id][cluster] @ cls_cov_param[c_id][cluster].T)
-#                     l = cls_cov_param[c_id][cluster]
-#                     if l.sum() == 0:
-#                         continue
-#                     # m = MultivariateNormal(mean.float(), var.float())
-#                     # sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
-#                     sampled_data_single = mean.float() + (torch.randn((num_sampled_pcls, cls_mean_param[c_id][cluster].shape[0]), device=device) @ l.T.float())
-#                     sampled_data.append(sampled_data_single)
-#                     sampled_label.extend([c_id] * num_sampled_pcls)
-    
-#     sampled_data = torch.cat(sampled_data, dim=0).float().to(device)
-#     sampled_label = torch.tensor(sampled_label).long().to(device)
-
-#     return sampled_data, sampled_label
-
-
-def sample_data_test(task_id, class_mask, args, device):
-    sampled_data = []
-    sampled_label = []
-    num_sampled_pcls = args.batch_size
-
-    if args.ca_storage_efficient_method in ['covariance', 'variance']:
-        for i in range(task_id):
-            for c_id in class_mask[i]:
-                mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
-                cov = cls_cov[c_id].to(device)
-                if args.ca_storage_efficient_method == 'variance':
-                    cov = torch.diag(cov)
-                m = MultivariateNormal(mean.float(), cov.float())
-                sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
-                sampled_data.append(sampled_data_single)
-
-                sampled_label.extend([c_id] * num_sampled_pcls)
-
-    elif args.ca_storage_efficient_method == 'multi-centroid':
-        for i in range(task_id):
-            for c_id in class_mask[i]:
-                for cluster in range(len(cls_mean[c_id])):
-                    mean = cls_mean[c_id][cluster]
-                    var = cls_cov[c_id][cluster]
-                    if var.mean() == 0:
-                        continue
-                    m = MultivariateNormal(mean.float(), (torch.diag(var) + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)).float())
-                    sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
-                    sampled_data.append(sampled_data_single)
-                    sampled_label.extend([c_id] * num_sampled_pcls)
-    
-    sampled_data = torch.cat(sampled_data, dim=0).float().to(device)
-    sampled_label = torch.tensor(sampled_label).long().to(device)
-
-    return sampled_data, sampled_label
-
-
 def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, max_norm: float = 0,
                     set_training_mode=True, task_id=-1, class_mask=None, args=None):
@@ -218,7 +39,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
 
         output = model(input)
         logits = output['logits']
-        
+
         # here is the trick to mask out classes of non-current tasks
         if args.train_mask and class_mask is not None:
             mask = class_mask[task_id]
@@ -358,13 +179,15 @@ def _compute_mean(model: torch.nn.Module, data_loader: Iterable, device: torch.d
             dist.all_gather(features_per_cls_list, features_per_cls)
 
         if args.ca_storage_efficient_method == 'covariance':
+            # features_per_cls = torch.cat(features_per_cls_list, dim=0)
+            # print(features_per_cls.shape)
             cls_mean[cls_id] = features_per_cls.mean(dim=0)
             cls_cov[cls_id] = torch.cov(features_per_cls.T) + (torch.eye(cls_mean[cls_id].shape[-1]) * 1e-4).to(device)
-
         if args.ca_storage_efficient_method == 'variance':
+            # features_per_cls = torch.cat(features_per_cls_list, dim=0)
+            # print(features_per_cls.shape)
             cls_mean[cls_id] = features_per_cls.mean(dim=0)
             cls_cov[cls_id] = torch.diag(torch.cov(features_per_cls.T) + (torch.eye(cls_mean[cls_id].shape[-1]) * 1e-4).to(device))
-            
         if args.ca_storage_efficient_method == 'multi-centroid':
             from sklearn.cluster import KMeans
             n_clusters = args.n_centroids
@@ -375,16 +198,107 @@ def _compute_mean(model: torch.nn.Module, data_loader: Iterable, device: torch.d
             cluster_lables = kmeans.labels_
             cluster_means = []
             cluster_vars = []
-
             for i in range(n_clusters):
-                cluster_data = features_per_cls[cluster_lables == i]
-                cluster_mean = torch.tensor(np.mean(cluster_data, axis=0), dtype=torch.float64).to(device)
-                cluster_var = torch.tensor(np.var(cluster_data, axis=0), dtype=torch.float64).to(device)
-                cluster_means.append(cluster_mean)
-                cluster_vars.append(cluster_var)
+               cluster_data = features_per_cls[cluster_lables == i]
+               cluster_mean = torch.tensor(np.mean(cluster_data, axis=0), dtype=torch.float64).to(device)
+               cluster_var = torch.tensor(np.var(cluster_data, axis=0), dtype=torch.float64).to(device)
+               cluster_means.append(cluster_mean)
+               cluster_vars.append(cluster_var)
             
             cls_mean[cls_id] = cluster_means
             cls_cov[cls_id] = cluster_vars
+
+
+
+def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Module,
+                       criterion, data_loader: Iterable, data_loader_per_cls: Iterable,
+                       optimizer: torch.optim.Optimizer, lr_scheduler,
+                       device: torch.device,
+                       class_mask=None, target_task_map=None, args=None, ):
+    # create matrix to save end-of-task accuracies
+    acc_matrix = np.zeros((args.num_tasks, args.num_tasks))
+    pre_ca_acc_matrix = np.zeros((args.num_tasks, args.num_tasks))
+    global cls_mean
+    global cls_cov
+    cls_mean = dict()
+    cls_cov = dict()
+
+    for task_id in range(args.num_tasks):
+
+        # Create new optimizer for each task to clear optimizer status
+        if task_id > 0 and args.reinit_optimizer:
+            optimizer = create_optimizer(args, model)
+            if args.sched != 'constant':
+                lr_scheduler, _ = create_scheduler(args, optimizer)
+            elif args.sched == 'constant':
+                lr_scheduler = None
+
+        for epoch in range(args.epochs):
+            # Train model
+            train_stats = train_one_epoch(model=model, criterion=criterion,
+                                          data_loader=data_loader[task_id]['train'], optimizer=optimizer,
+                                          device=device, epoch=epoch, max_norm=args.clip_grad,
+                                          set_training_mode=True, task_id=task_id, class_mask=class_mask, args=args,
+                                          )
+
+            if lr_scheduler:
+                lr_scheduler.step(epoch)
+
+        print('-' * 20)
+        print(f'Evaluate task {task_id + 1} before CA')
+        test_stats_pre_ca = evaluate_till_now(model=model, data_loader=data_loader,
+                                              device=device,
+                                              task_id=task_id, class_mask=class_mask, target_task_map=target_task_map,
+                                              acc_matrix=pre_ca_acc_matrix, args=args)
+        print('-' * 20)
+
+        # TODO compute mean and variance
+        print('-' * 20)
+        print(f'Compute mean and variance for task {task_id + 1}')
+        _compute_mean(model=model, data_loader=data_loader_per_cls, device=device, class_mask=class_mask[task_id],
+                      args=args)
+        print('-' * 20)
+
+        # TODO classifier alignment
+        if task_id > 0:
+            print('-' * 20)
+            print(f'Align classifier for task {task_id + 1}')
+            train_task_adaptive_prediction(model, args, device, class_mask, task_id)
+            print('-' * 20)
+
+        # Evaluate model
+        print('-' * 20)
+        print(f'Evaluate task {task_id + 1} after CA')
+        test_stats = evaluate_till_now(model=model, data_loader=data_loader,
+                                       device=device,
+                                       task_id=task_id, class_mask=class_mask, target_task_map=target_task_map,
+                                       acc_matrix=acc_matrix, args=args)
+        print('-' * 20)
+
+        if args.output_dir and utils.is_main_process():
+            Path(os.path.join(args.output_dir, 'checkpoint')).mkdir(parents=True, exist_ok=True)
+
+            checkpoint_path = os.path.join(args.output_dir, 'checkpoint/task{}_checkpoint.pth'.format(task_id + 1))
+            state_dict = {
+                'model': model_without_ddp.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'epoch': epoch,
+                'args': args,
+            }
+            if args.sched is not None and args.sched != 'constant':
+                state_dict['lr_scheduler'] = lr_scheduler.state_dict()
+
+            utils.save_on_master(state_dict, checkpoint_path)
+
+        log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
+                     **{f'test_{k}': v for k, v in test_stats.items()},
+                     'epoch': epoch, }
+
+        if args.output_dir and utils.is_main_process():
+            with open(os.path.join(args.output_dir,
+                                   '{}_stats.txt'.format(datetime.datetime.now().strftime('log_%Y_%m_%d_%H_%M'))),
+                      'a') as f:
+                f.write(json.dumps(log_stats) + '\n')
 
 
 def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_mask=None, task_id=-1):
@@ -405,7 +319,7 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
         optimizer = optim.SGD(network_params, lr=args.ca_lr, momentum=0.9, weight_decay=5e-4)
 
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=run_epochs)
-    criterion = nn.CrossEntropyLoss().to(device)
+    criterion = torch.nn.CrossEntropyLoss().to(device)
 
     for i in range(task_id):
         crct_num += len(class_mask[i])
@@ -413,13 +327,46 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
     # TODO: efficiency may be improved by encapsulating sampled data into Datasets class and using distributed sampler.
     for epoch in range(run_epochs):
 
+        sampled_data = []
+        sampled_label = []
         num_sampled_pcls = args.batch_size
 
         metric_logger = utils.MetricLogger(delimiter="  ")
         metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
         metric_logger.add_meter('Loss', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
 
-        sampled_data, sampled_label = sample_data_test(task_id, class_mask, args, device)
+        if args.ca_storage_efficient_method in ['covariance', 'variance']:
+            for i in range(task_id + 1):
+                for c_id in class_mask[i]:
+                    mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
+                    cov = cls_cov[c_id].to(device)
+                    if args.ca_storage_efficient_method == 'variance':
+                        cov = torch.diag(cov)
+                    m = MultivariateNormal(mean.float(), cov.float())
+                    sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
+                    sampled_data.append(sampled_data_single)
+
+                    sampled_label.extend([c_id] * num_sampled_pcls)
+
+        elif args.ca_storage_efficient_method == 'multi-centroid':
+            for i in range(task_id + 1):
+                for c_id in class_mask[i]:
+                    for cluster in range(len(cls_mean[c_id])):
+                        mean = cls_mean[c_id][cluster]
+                        var = cls_cov[c_id][cluster]
+                        if var.mean() == 0:
+                            continue
+                        m = MultivariateNormal(mean.float(), (torch.diag(var) + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)).float())
+                        sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
+                        sampled_data.append(sampled_data_single)
+                        sampled_label.extend([c_id] * num_sampled_pcls)
+
+        else:
+            raise NotImplementedError
+
+
+        sampled_data = torch.cat(sampled_data, dim=0).float().to(device)
+        sampled_label = torch.tensor(sampled_label).long().to(device)
 
         inputs = sampled_data
         targets = sampled_label
@@ -432,7 +379,6 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
         for _iter in range(crct_num):
             inp = inputs[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
             tgt = targets[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
-
             outputs = model(inp, fc_only=True)
             logits = outputs['logits']
 
@@ -446,7 +392,6 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
                 logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
             loss = criterion(logits, tgt)  # base criterion (CrossEntropyLoss)
-
             acc1, acc5 = accuracy(logits, tgt, topk=(1, 5))
 
             if not math.isfinite(loss.item()):
@@ -468,122 +413,6 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
         print("Averaged stats:", metric_logger)
         scheduler.step()
 
-
-
-
-# def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_mask=None, task_id=-1):
-#     model.train()
-#     run_epochs = args.crct_epochs
-#     crct_num = 0
-#     param_list = [p for p in model.parameters() if p.requires_grad]
-#     print('-' * 20)
-#     print('Learnable parameters:')
-#     for name, p in model.named_parameters():
-#         if p.requires_grad:
-#             print(name)
-#     print('-' * 20)
-#     network_params = [{'params': param_list, 'lr': args.ca_lr, 'weight_decay': args.weight_decay}]
-#     if 'mae' in args.model or 'beit' in args.model:
-#         optimizer = optim.AdamW(network_params, lr=args.ca_lr / 10, weight_decay=args.weight_decay)
-#     else:
-#         optimizer = optim.SGD(network_params, lr=args.ca_lr, momentum=0.9, weight_decay=5e-4)
-
-#     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=run_epochs)
-#     criterion = nn.CrossEntropyLoss().to(device)
-
-#     for i in range(task_id):
-#         crct_num += len(class_mask[i])
-
-#     # TODO: efficiency may be improved by encapsulating sampled data into Datasets class and using distributed sampler.
-#     for epoch in range(run_epochs):
-
-#         sampled_data = []
-#         sampled_label = []
-#         num_sampled_pcls = args.batch_size
-
-#         metric_logger = utils.MetricLogger(delimiter="  ")
-#         metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
-#         metric_logger.add_meter('Loss', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
-
-#         if args.ca_storage_efficient_method in ['covariance', 'variance']:
-#             for i in range(task_id + 1):
-#                 for c_id in class_mask[i]:
-#                     mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
-#                     cov = cls_cov[c_id].to(device)
-#                     if args.ca_storage_efficient_method == 'variance':
-#                         cov = torch.diag(cov)
-#                     m = MultivariateNormal(mean.float(), cov.float())
-#                     sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
-#                     sampled_data.append(sampled_data_single)
-
-#                     sampled_label.extend([c_id] * num_sampled_pcls)
-
-#         elif args.ca_storage_efficient_method == 'multi-centroid':
-#             for i in range(task_id + 1):
-#                 for c_id in class_mask[i]:
-#                     for cluster in range(len(cls_mean[c_id])):
-#                         mean = cls_mean[c_id][cluster]
-#                         var = cls_cov[c_id][cluster]
-#                         if var.mean() == 0:
-#                             continue
-#                         m = MultivariateNormal(mean.float(), (torch.diag(var) + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)).float())
-#                         sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
-#                         sampled_data.append(sampled_data_single)
-#                         sampled_label.extend([c_id] * num_sampled_pcls)
-
-#         else:
-#             raise NotImplementedError
-
-
-#         sampled_data = torch.cat(sampled_data, dim=0).float().to(device)
-#         sampled_label = torch.tensor(sampled_label).long().to(device)
-
-#         inputs = sampled_data
-#         targets = sampled_label
-
-#         sf_indexes = torch.randperm(inputs.size(0))
-#         inputs = inputs[sf_indexes]
-#         targets = targets[sf_indexes]
-#         #print(targets)
-
-#         for _iter in range(crct_num):
-#             inp = inputs[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
-#             tgt = targets[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
-
-#             outputs = model(inp, fc_only=True)
-#             logits = outputs['logits']
-
-#             if args.train_mask and class_mask is not None:
-#                 mask = []
-#                 for id in range(task_id+1):
-#                     mask.extend(class_mask[id])
-#                 # print(mask)
-#                 not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
-#                 not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
-#                 logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
-
-#             loss = criterion(logits, tgt)  # base criterion (CrossEntropyLoss)
-
-#             acc1, acc5 = accuracy(logits, tgt, topk=(1, 5))
-
-#             if not math.isfinite(loss.item()):
-#                 print("Loss is {}, stopping training".format(loss.item()))
-#                 sys.exit(1)
-
-#             optimizer.zero_grad()
-#             loss.backward()
-#             optimizer.step()
-#             torch.cuda.synchronize()
-
-#             metric_logger.update(Loss=loss.item())
-#             metric_logger.update(Lr=optimizer.param_groups[0]["lr"])
-#             metric_logger.meters['Acc@1'].update(acc1.item(), n=inp.shape[0])
-#             metric_logger.meters['Acc@5'].update(acc5.item(), n=inp.shape[0])
-
-#             # gather the stats from all processes
-#         metric_logger.synchronize_between_processes()
-#         print("Averaged stats:", metric_logger)
-#         scheduler.step()
 @torch.no_grad()
 def compute_confusion_matrix(model: torch.nn.Module, data_loader,
                              device, target_task_map=None, args=None, ):
