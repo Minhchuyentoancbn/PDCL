@@ -73,12 +73,12 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
                       args=args)
         print('-' * 20)
 
-        # # TODO classifier alignment
-        # if task_id > 0:
-        #     print('-' * 20)
-        #     print(f'Align classifier for task {task_id + 1}')
-        #     train_task_adaptive_prediction(model, args, device, class_mask, task_id,)
-        #     print('-' * 20)
+        # TODO classifier alignment
+        if task_id > 0 and (not args.use_gaussian):
+            print('-' * 20)
+            print(f'Align classifier for task {task_id + 1}')
+            train_task_adaptive_prediction(model, args, device, class_mask, task_id,)
+            print('-' * 20)
 
         # Evaluate model
         print('-' * 20)
@@ -507,7 +507,7 @@ def sample_data(task_id, class_mask, device, args, include_current_task=True, tr
                 sampled_label.extend([c_id] * num_sampled_pcls)
 
     elif args.ca_storage_efficient_method == 'multi-centroid':
-        num_sampled_pcls /= args.n_centroids
+        num_sampled_pcls = num_sampled_pcls // args.n_centroids
         for i in range(max_task):
             for c_id in class_mask[i]:
                 for cluster in range(len(cls_mean[c_id])):
