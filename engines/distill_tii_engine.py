@@ -47,6 +47,26 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
             elif args.sched == 'constant':
                 lr_scheduler = None
 
+
+        for epoch in range(args.epochs):
+            # Train model
+            train_stats = train_initial(model=model, criterion=criterion,
+                                          data_loader=data_loader[task_id]['train'], optimizer=optimizer,
+                                          device=device, epoch=epoch, max_norm=args.clip_grad,
+                                          set_training_mode=True, task_id=task_id, class_mask=class_mask, args=args,
+                                          old_head=old_head, )
+
+            if lr_scheduler:
+                lr_scheduler.step(epoch)
+
+        # Create new optimizer for each task to clear optimizer status
+        if task_id > 0 and args.reinit_optimizer:
+            optimizer = create_optimizer(args, model)
+            if args.sched != 'constant':
+                lr_scheduler, _ = create_scheduler(args, optimizer)
+            elif args.sched == 'constant':
+                lr_scheduler = None
+
         for epoch in range(args.epochs):
             # Train model
             train_stats = train_one_epoch(model=model, criterion=criterion,
@@ -116,7 +136,7 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
 
 
 
-def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, optimizer: torch.optim.Optimizer,
+def train_initial(model: torch.nn.Module, criterion, data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, max_norm: float = 0,
                     set_training_mode=True, task_id=-1, class_mask=None, args=None, old_head=None
                     ):
@@ -137,79 +157,13 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
         output = model(input)
         logits = output['logits']
 
-        if args.use_gaussian:
-            if args.train_mask and class_mask is not None:
-                mask = []
-                for id in range(task_id+1):
-                    mask.extend(class_mask[id])
-                # print(mask)
-                not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
-                not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
-                logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
-
-            loss = criterion(logits, target)  # base criterion (CrossEntropyLoss)
-            if old_head is not None:
-                sampled_data, sampled_label = sample_data(task_id, class_mask, device, args, include_current_task=False, train=True)
-                inputs = sampled_data
-                targets = sampled_label
-
-                sampled_loss = 0
-                num_samples = 0
-                sf_indexes = torch.randperm(inputs.size(0))
-                inputs = inputs[sf_indexes]
-                targets = targets[sf_indexes]
-
-                for pos in range(0, inputs.size(0), args.batch_size):
-                    inp = inputs[pos:pos + args.batch_size]
-                    tgt = targets[pos:pos + args.batch_size]
-                    outputs = model(inp, fc_only=True)
-                    sample_logits = outputs['logits']
-
-                    if args.train_mask and class_mask is not None:
-                        mask = []
-                        for id in range(task_id+1):
-                            mask.extend(class_mask[id])
-                        # print(mask)
-                        not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
-                        not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
-                        sample_logits = sample_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
-
-                    with torch.no_grad():
-                        old_head_outputs = model.forward_new_head(inp, *old_head)
-                        old_head_logits = old_head_outputs['logits']
-
-                    if args.train_mask and class_mask is not None:
-                        old_mask = []
-                        for id in range(task_id):
-                            old_mask.extend(class_mask[id])
-                        not_mask = np.setdiff1d(np.arange(args.nb_classes), old_mask)
-                        not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
-                        old_head_logits = old_head_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
-
-                    old_target = torch.argmax(old_head_logits, dim=1)
-                    # sample_loss = ((-F.log_softmax(sample_logits, dim=1)[:, mask] * 
-                    #                F.softmax(old_head_logits, dim=1)[:, mask]).sum(dim=1)).sum()
-                    # sample_loss = ((-F.log_softmax(sample_logits, dim=1)[:, mask] * 
-                    #                F.softmax(old_head_logits, dim=1)[:, mask]).sum(dim=1) * (tgt == old_target).float()).sum()
-                    
-                    # sample_loss = F.cross_entropy(sample_logits, old_target, reduction='sum')
-                    sample_loss = F.cross_entropy(sample_logits[tgt == old_target, :], old_target[tgt == old_target], reduction='sum')
-                    # criterion(sample_logits, old_target)
-                    sampled_loss += sample_loss
-                    # num_samples += inp.shape[0]
-                    num_samples += (tgt == old_target).sum().item()
-
-                sampled_loss /= num_samples
-                loss += args.reg * sampled_loss
-
-        else:
-            # here is the trick to mask out classes of non-current tasks
-            if args.train_mask and class_mask is not None:
-                mask = class_mask[task_id]
-                not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
-                not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
-                logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
-            loss = criterion(logits, target)
+        # here is the trick to mask out classes of non-current tasks
+        if args.train_mask and class_mask is not None:
+            mask = class_mask[task_id]
+            not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
+            not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+            logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+        loss = criterion(logits, target)
 
         optimizer.zero_grad()
         loss.backward()
@@ -528,3 +482,122 @@ def sample_data(task_id, class_mask, device, args, include_current_task=True, tr
     sampled_label = torch.tensor(sampled_label).long().to(device)
 
     return sampled_data, sampled_label
+
+
+
+def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, optimizer: torch.optim.Optimizer,
+                    device: torch.device, epoch: int, max_norm: float = 0,
+                    set_training_mode=True, task_id=-1, class_mask=None, args=None, old_head=None
+                    ):
+    model.train(set_training_mode)
+
+    if args.distributed and utils.get_world_size() > 1:
+        data_loader.sampler.set_epoch(epoch)
+
+    metric_logger = utils.MetricLogger(delimiter="  ")
+    metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
+    metric_logger.add_meter('Loss', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
+    header = f'Train: Epoch[{epoch + 1:{int(math.log10(args.epochs)) + 1}}/{args.epochs}]'
+
+    for input, target in metric_logger.log_every(data_loader, args.print_freq, header):
+        input = input.to(device, non_blocking=True)
+        target = target.to(device, non_blocking=True)
+
+        output = model(input)
+        logits = output['logits']
+
+        if args.use_gaussian:
+            if args.train_mask and class_mask is not None:
+                mask = []
+                for id in range(task_id+1):
+                    mask.extend(class_mask[id])
+                # print(mask)
+                not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
+                not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+                logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+
+            loss = criterion(logits, target)  # base criterion (CrossEntropyLoss)
+            if old_head is not None:
+                sampled_data, sampled_label = sample_data(task_id, class_mask, device, args, include_current_task=False, train=True)
+                inputs = sampled_data
+                targets = sampled_label
+
+                sampled_loss = 0
+                num_samples = 0
+                sf_indexes = torch.randperm(inputs.size(0))
+                inputs = inputs[sf_indexes]
+                targets = targets[sf_indexes]
+
+                for pos in range(0, inputs.size(0), args.batch_size):
+                    inp = inputs[pos:pos + args.batch_size]
+                    tgt = targets[pos:pos + args.batch_size]
+                    outputs = model(inp, fc_only=True)
+                    sample_logits = outputs['logits']
+
+                    if args.train_mask and class_mask is not None:
+                        mask = []
+                        for id in range(task_id+1):
+                            mask.extend(class_mask[id])
+                        # print(mask)
+                        not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
+                        not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+                        sample_logits = sample_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+
+                    with torch.no_grad():
+                        old_head_outputs = model.forward_new_head(inp, *old_head)
+                        old_head_logits = old_head_outputs['logits']
+
+                    if args.train_mask and class_mask is not None:
+                        old_mask = []
+                        for id in range(task_id):
+                            old_mask.extend(class_mask[id])
+                        not_mask = np.setdiff1d(np.arange(args.nb_classes), old_mask)
+                        not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+                        old_head_logits = old_head_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+
+                    old_target = torch.argmax(old_head_logits, dim=1)
+                    # sample_loss = ((-F.log_softmax(sample_logits, dim=1)[:, mask] * 
+                    #                F.softmax(old_head_logits, dim=1)[:, mask]).sum(dim=1)).sum()
+                    # sample_loss = ((-F.log_softmax(sample_logits, dim=1)[:, mask] * 
+                    #                F.softmax(old_head_logits, dim=1)[:, mask]).sum(dim=1) * (tgt == old_target).float()).sum()
+                    
+                    # sample_loss = F.cross_entropy(sample_logits, old_target, reduction='sum')
+                    sample_loss = F.cross_entropy(sample_logits[tgt == old_target, :], old_target[tgt == old_target], reduction='sum')
+                    # criterion(sample_logits, old_target)
+                    sampled_loss += sample_loss
+                    # num_samples += inp.shape[0]
+                    num_samples += (tgt == old_target).sum().item()
+
+                sampled_loss /= num_samples
+                loss += args.reg * sampled_loss
+
+        else:
+            # here is the trick to mask out classes of non-current tasks
+            if args.train_mask and class_mask is not None:
+                mask = class_mask[task_id]
+                not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
+                not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+                logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+            loss = criterion(logits, target)
+
+        optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+        optimizer.step()
+
+        if not math.isfinite(loss.item()):
+            print("Loss is {}, stopping training".format(loss.item()))
+            sys.exit(1)
+
+        acc1, acc5 = accuracy(logits, target, topk=(1, 5))
+
+        torch.cuda.synchronize()
+        metric_logger.update(Loss=loss.item())
+        metric_logger.update(Lr=optimizer.param_groups[0]["lr"])
+        metric_logger.meters['Acc@1'].update(acc1.item(), n=input.shape[0])
+        metric_logger.meters['Acc@5'].update(acc5.item(), n=input.shape[0])
+
+    
+    metric_logger.synchronize_between_processes()
+    print("Averaged stats:", metric_logger)
+    return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
