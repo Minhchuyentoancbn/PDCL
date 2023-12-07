@@ -130,9 +130,6 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
     metric_logger.add_meter('Loss', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
     header = f'Train: Epoch[{epoch + 1:{int(math.log10(args.epochs)) + 1}}/{args.epochs}]'
 
-    if args.use_gaussian and old_head is not None:
-        sample_criterion = nn.KLDivLoss(reduction='batchmean')
-
     for input, target in metric_logger.log_every(data_loader, args.print_freq, header):
         input = input.to(device, non_blocking=True)
         target = target.to(device, non_blocking=True)
@@ -168,7 +165,6 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
 
                 for _iter in range(crct_num):
                     inp = inputs[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
-                    tgt = targets[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
                     outputs = model(inp, fc_only=True)
                     sample_logits = outputs['logits']
 
@@ -180,15 +176,15 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
                         old_head_logits = old_head_outputs['logits']
 
                     if args.train_mask and class_mask is not None:
-                        mask = []
+                        old_mask = []
                         for id in range(task_id):
-                            mask.extend(class_mask[id])
-                        not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
+                            old_mask.extend(class_mask[id])
+                        not_mask = np.setdiff1d(np.arange(args.nb_classes), old_mask)
                         not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
                         old_head_logits = old_head_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-                    sample_loss = sample_criterion(F.log_softmax(sample_logits, dim=1),
-                                                   F.softmax(old_head_logits, dim=1))
+                    sample_loss = (-F.log_softmax(sample_logits, dim=1)[:, mask] * 
+                                   F.softmax(old_head_logits, dim=1)[:, mask]).sum(dim=1).mean()
                     sampled_loss += sample_loss
                     num_iter += 1
 
