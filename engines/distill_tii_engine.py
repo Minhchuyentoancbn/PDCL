@@ -153,6 +153,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
             loss = criterion(logits, target)  # base criterion (CrossEntropyLoss)
             if old_head is not None:
                 num_sampled_pcls = args.batch_size
+                crct_num = 0
                 for i in range(task_id):
                     crct_num += len(class_mask[i])
                 sampled_data, sampled_label = sample_data(task_id, class_mask, device, args, include_current_task=False)
