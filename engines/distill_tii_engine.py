@@ -183,6 +183,8 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
                         not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
                         old_head_logits = old_head_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
+                    print(F.log_softmax(sample_logits, dim=1)[:, mask])
+                    print(F.softmax(old_head_logits, dim=1)[:, mask])
                     sample_loss = (-F.log_softmax(sample_logits, dim=1)[:, mask] * 
                                    F.softmax(old_head_logits, dim=1)[:, mask]).sum(dim=1).mean()
                     sampled_loss += sample_loss
