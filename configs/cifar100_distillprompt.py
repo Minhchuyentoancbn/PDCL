@@ -155,3 +155,4 @@ def get_args_parser(subparsers):
 
     # Add by myself
     subparsers.add_argument('--use_gaussian', action='store_true')
+    subparsers.add_argument('--replay_epochs', default=0, type=int)
