@@ -165,7 +165,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
 
                 for _iter in range(crct_num):
                     inp = inputs[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
-                    # tgt = targets[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
+                    tgt = targets[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
                     outputs = model(inp, fc_only=True)
                     sample_logits = outputs['logits']
 
@@ -193,10 +193,12 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
                     # sample_loss = (-F.log_softmax(sample_logits, dim=1)[:, mask] * 
                     #                F.softmax(old_head_logits, dim=1)[:, mask]).sum(dim=1).sum()
                     old_target = torch.argmax(old_head_logits, dim=1)
-                    sample_loss = F.cross_entropy(sample_logits, old_target, reduction='sum')
+                    # sample_loss = F.cross_entropy(sample_logits, old_target, reduction='sum')
+                    sample_loss = F.cross_entropy(sample_logits[tgt == old_target, :], old_target[tgt == old_target], reduction='sum')
                     # criterion(sample_logits, old_target)
                     sampled_loss += sample_loss
-                    num_samples += inp.shape[0]
+                    # num_samples += inp.shape[0]
+                    num_samples += (tgt == old_target).sum().item()
 
                 sampled_loss /= num_samples
                 loss += args.reg * sampled_loss
