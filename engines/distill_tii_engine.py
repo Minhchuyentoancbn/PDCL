@@ -47,26 +47,6 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
             elif args.sched == 'constant':
                 lr_scheduler = None
 
-
-            for epoch in range(args.epochs):
-                # Train model
-                train_stats = train_initial(model=model, criterion=criterion,
-                                            data_loader=data_loader[task_id]['train'], optimizer=optimizer,
-                                            device=device, epoch=epoch, max_norm=args.clip_grad,
-                                            set_training_mode=True, task_id=task_id, class_mask=class_mask, args=args,
-                                            old_head=old_head, )
-
-            if lr_scheduler:
-                lr_scheduler.step(epoch)
-
-        # Create new optimizer for each task to clear optimizer status
-        if task_id > 0 and args.reinit_optimizer:
-            optimizer = create_optimizer(args, model)
-            if args.sched != 'constant':
-                lr_scheduler, _ = create_scheduler(args, optimizer)
-            elif args.sched == 'constant':
-                lr_scheduler = None
-
         for epoch in range(args.epochs):
             # Train model
             train_stats = train_one_epoch(model=model, criterion=criterion,
@@ -133,59 +113,6 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
                                    '{}_stats.txt'.format(datetime.datetime.now().strftime('log_%Y_%m_%d_%H_%M'))),
                       'a') as f:
                 f.write(json.dumps(log_stats) + '\n')
-
-
-
-def train_initial(model: torch.nn.Module, criterion, data_loader: Iterable, optimizer: torch.optim.Optimizer,
-                    device: torch.device, epoch: int, max_norm: float = 0,
-                    set_training_mode=True, task_id=-1, class_mask=None, args=None, old_head=None
-                    ):
-    model.train(set_training_mode)
-
-    if args.distributed and utils.get_world_size() > 1:
-        data_loader.sampler.set_epoch(epoch)
-
-    metric_logger = utils.MetricLogger(delimiter="  ")
-    metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
-    metric_logger.add_meter('Loss', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
-    header = f'Train: Epoch[{epoch + 1:{int(math.log10(args.epochs)) + 1}}/{args.epochs}]'
-
-    for input, target in metric_logger.log_every(data_loader, args.print_freq, header):
-        input = input.to(device, non_blocking=True)
-        target = target.to(device, non_blocking=True)
-
-        output = model(input)
-        logits = output['logits']
-
-        # here is the trick to mask out classes of non-current tasks
-        if args.train_mask and class_mask is not None:
-            mask = class_mask[task_id]
-            not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
-            not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
-            logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
-        loss = criterion(logits, target)
-
-        optimizer.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
-        optimizer.step()
-
-        if not math.isfinite(loss.item()):
-            print("Loss is {}, stopping training".format(loss.item()))
-            sys.exit(1)
-
-        acc1, acc5 = accuracy(logits, target, topk=(1, 5))
-
-        torch.cuda.synchronize()
-        metric_logger.update(Loss=loss.item())
-        metric_logger.update(Lr=optimizer.param_groups[0]["lr"])
-        metric_logger.meters['Acc@1'].update(acc1.item(), n=input.shape[0])
-        metric_logger.meters['Acc@5'].update(acc5.item(), n=input.shape[0])
-
-    
-    metric_logger.synchronize_between_processes()
-    print("Averaged stats:", metric_logger)
-    return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
 @torch.no_grad()
