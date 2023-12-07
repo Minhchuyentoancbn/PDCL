@@ -30,14 +30,14 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
     pre_ca_acc_matrix = np.zeros((args.num_tasks, args.num_tasks))
     global cls_mean
     global cls_cov
-    global old_head
     cls_mean = dict()
     cls_cov = dict()
-    old_head = None
 
     for task_id in range(args.num_tasks):
         if task_id > 0:
             old_head = model.get_head()
+        else:
+            old_head = None
 
         # Create new optimizer for each task to clear optimizer status
         if task_id > 0 and args.reinit_optimizer:
@@ -58,13 +58,13 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
             if lr_scheduler:
                 lr_scheduler.step(epoch)
 
-        # print('-' * 20)
-        # print(f'Evaluate task {task_id + 1} before CA')
-        # test_stats_pre_ca = evaluate_till_now(model=model, data_loader=data_loader,
-        #                                       device=device,
-        #                                       task_id=task_id, class_mask=class_mask, target_task_map=target_task_map,
-        #                                       acc_matrix=pre_ca_acc_matrix, args=args)
-        # print('-' * 20)
+        print('-' * 20)
+        print(f'Evaluate task {task_id + 1} before CA')
+        test_stats_pre_ca = evaluate_till_now(model=model, data_loader=data_loader,
+                                              device=device,
+                                              task_id=task_id, class_mask=class_mask, target_task_map=target_task_map,
+                                              acc_matrix=pre_ca_acc_matrix, args=args)
+        print('-' * 20)
 
         # TODO compute mean and variance
         print('-' * 20)
@@ -74,7 +74,7 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
         print('-' * 20)
 
         # TODO classifier alignment
-        if task_id > 0 and (not args.use_gaussian):
+        if task_id > 0:
             print('-' * 20)
             print(f'Align classifier for task {task_id + 1}')
             train_task_adaptive_prediction(model, args, device, class_mask, task_id,)
@@ -254,7 +254,6 @@ def _compute_mean(model: torch.nn.Module, data_loader: Iterable, device: torch.d
 def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_mask=None, task_id=-1):
     model.train()
     run_epochs = args.crct_epochs
-    crct_num = 0
     param_list = [p for p in model.parameters() if p.requires_grad]
     print('-' * 20)
     print('Learnable parameters:')
@@ -271,11 +270,13 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=run_epochs)
     criterion = torch.nn.CrossEntropyLoss().to(device)
 
-    for i in range(task_id):
-        crct_num += len(class_mask[i])
 
     # TODO: efficiency may be improved by encapsulating sampled data into Datasets class and using distributed sampler.
     for epoch in range(run_epochs):
+
+        if args.use_gaussian:
+            old_head = model.get_head()
+            
         metric_logger = utils.MetricLogger(delimiter="  ")
         metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
         metric_logger.add_meter('Loss', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
@@ -304,7 +305,16 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
                 not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
                 logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-            loss = criterion(logits, tgt)  # base criterion (CrossEntropyLoss)
+            if args.use_gaussian and args.soft_label:
+                old_outputs = model.forward_new_head(inp, *old_head)
+                old_logits = old_outputs['logits']
+                if args.train_mask and class_mask is not None:
+                    old_logits = old_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+                old_prob = F.softmax(old_logits, dim=1)
+                loss = (F.cross_entropy(logits, tgt, reduction='none') * old_prob[torch.arange(tgt.shape[0]), tgt]).mean()
+            else:
+                loss = criterion(logits, tgt)
+
             acc1, acc5 = accuracy(logits, tgt, topk=(1, 5))
 
             if not math.isfinite(loss.item()):
