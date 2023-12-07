@@ -19,6 +19,7 @@ for some einops/einsum fun
 """
 import math
 import logging
+import copy
 from copy import deepcopy
 from functools import partial
 from collections import OrderedDict
@@ -715,6 +716,28 @@ class VisionTransformer(nn.Module):
 
         res['logits'] = self.head(x)
 
+        return res
+
+    
+    def get_head(self):
+        """
+        Get a copy of MLP and head.
+        """
+        head = copy.deepcopy(self.head)
+        mlp = copy.deepcopy(self.mlp)
+        fc_norm = copy.deepcopy(self.fc_norm)
+        head.requires_grad_(False)
+        mlp.requires_grad_(False)
+        fc_norm.requires_grad_(False)
+
+        return mlp, fc_norm, head
+    
+
+    def forward_new_head(self, x, mlp, fc_norm, head):
+        res = dict()
+        x = mlp(x)
+        x = fc_norm(x)
+        res['logits'] = head(x)
         return res
 
 

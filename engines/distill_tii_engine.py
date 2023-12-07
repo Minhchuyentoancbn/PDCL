@@ -30,10 +30,14 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
     pre_ca_acc_matrix = np.zeros((args.num_tasks, args.num_tasks))
     global cls_mean
     global cls_cov
+    global old_head
     cls_mean = dict()
     cls_cov = dict()
+    old_head = None
 
     for task_id in range(args.num_tasks):
+        if task_id > 0:
+            old_head = model.get_head()
 
         # Create new optimizer for each task to clear optimizer status
         if task_id > 0 and args.reinit_optimizer:
@@ -49,7 +53,7 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
                                           data_loader=data_loader[task_id]['train'], optimizer=optimizer,
                                           device=device, epoch=epoch, max_norm=args.clip_grad,
                                           set_training_mode=True, task_id=task_id, class_mask=class_mask, args=args,
-                                          )
+                                          old_head=old_head, )
 
             if lr_scheduler:
                 lr_scheduler.step(epoch)
@@ -114,7 +118,8 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
 
 def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, max_norm: float = 0,
-                    set_training_mode=True, task_id=-1, class_mask=None, args=None):
+                    set_training_mode=True, task_id=-1, class_mask=None, args=None, old_head=None
+                    ):
     model.train(set_training_mode)
 
     if args.distributed and utils.get_world_size() > 1:
@@ -125,6 +130,9 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
     metric_logger.add_meter('Loss', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
     header = f'Train: Epoch[{epoch + 1:{int(math.log10(args.epochs)) + 1}}/{args.epochs}]'
 
+    if args.use_gaussian and old_head is not None:
+        sample_criterion = nn.KLDivLoss(reduction='batchmean')
+
     for input, target in metric_logger.log_every(data_loader, args.print_freq, header):
         input = input.to(device, non_blocking=True)
         target = target.to(device, non_blocking=True)
@@ -132,14 +140,69 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
         output = model(input)
         logits = output['logits']
 
-        # here is the trick to mask out classes of non-current tasks
-        if args.train_mask and class_mask is not None:
-            mask = class_mask[task_id]
-            not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
-            not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
-            logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+        if args.use_gaussian:
+            if args.train_mask and class_mask is not None:
+                mask = []
+                for id in range(task_id+1):
+                    mask.extend(class_mask[id])
+                # print(mask)
+                not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
+                not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+                logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-        loss = criterion(logits, target)
+            loss = criterion(logits, target)  # base criterion (CrossEntropyLoss)
+            if old_head is not None:
+                num_sampled_pcls = args.batch_size
+                for i in range(task_id):
+                    crct_num += len(class_mask[i])
+                sampled_data, sampled_label = sample_data(task_id, class_mask, device, args, include_current_task=False)
+                inputs = sampled_data
+                targets = sampled_label
+
+                sampled_loss = 0
+                num_iter = 0
+                sf_indexes = torch.randperm(inputs.size(0))
+                inputs = inputs[sf_indexes]
+                targets = targets[sf_indexes]
+
+                for _iter in range(crct_num):
+                    inp = inputs[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
+                    tgt = targets[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
+                    outputs = model(inp, fc_only=True)
+                    sample_logits = outputs['logits']
+
+                    if args.train_mask and class_mask is not None:
+                        sample_logits = sample_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+
+                    with torch.no_grad():
+                        old_head_outputs = model.forward_new_head(inp, *old_head)
+                        old_head_logits = old_head_outputs['logits']
+
+                    if args.train_mask and class_mask is not None:
+                        mask = []
+                        for id in range(task_id):
+                            mask.extend(class_mask[id])
+                        not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
+                        not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+                        old_head_logits = old_head_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+
+                    sample_loss = sample_criterion(F.log_softmax(sample_logits, dim=1),
+                                                   F.softmax(old_head_logits, dim=1))
+                    sampled_loss += sample_loss
+                    num_iter += 1
+
+                sampled_loss /= num_iter
+                loss += args.reg * sampled_loss
+
+        else:
+            # here is the trick to mask out classes of non-current tasks
+            if args.train_mask and class_mask is not None:
+                mask = class_mask[task_id]
+                not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
+                not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+                logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+
+            loss = criterion(logits, target)
 
         optimizer.zero_grad()
         loss.backward()
@@ -251,7 +314,6 @@ def evaluate_till_now(model: torch.nn.Module, data_loader,
     return test_stats
 
 
-
 @torch.no_grad()
 def _compute_mean(model: torch.nn.Module, data_loader: Iterable, device: torch.device, class_mask=None, args=None, ):
     model.eval()
@@ -330,8 +392,8 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
         metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
         metric_logger.add_meter('Loss', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
         num_sampled_pcls = args.batch_size
-        
-        sampled_data, sampled_label = sample_test_data(task_id, class_mask, device, args)
+
+        sampled_data, sampled_label = sample_data(task_id, class_mask, device, args, include_current_task=True)
         inputs = sampled_data
         targets = sampled_label
 
@@ -377,6 +439,7 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
         print("Averaged stats:", metric_logger)
         scheduler.step()
 
+
 @torch.no_grad()
 def compute_confusion_matrix(model: torch.nn.Module, data_loader,
                              device, target_task_map=None, args=None, ):
@@ -412,13 +475,17 @@ def compute_confusion_matrix(model: torch.nn.Module, data_loader,
     return confusion_matrix
 
 
-def sample_test_data(task_id, class_mask, device, args):
+def sample_data(task_id, class_mask, device, args, include_current_task=True):
     sampled_data = []
     sampled_label = []
     num_sampled_pcls = args.batch_size
+    if include_current_task:
+        max_task = task_id + 1
+    else:
+        max_task = task_id
 
     if args.ca_storage_efficient_method in ['covariance', 'variance']:
-        for i in range(task_id + 1):
+        for i in range(max_task):
             for c_id in class_mask[i]:
                 mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
                 cov = cls_cov[c_id].to(device)
@@ -431,7 +498,7 @@ def sample_test_data(task_id, class_mask, device, args):
                 sampled_label.extend([c_id] * num_sampled_pcls)
 
     elif args.ca_storage_efficient_method == 'multi-centroid':
-        for i in range(task_id + 1):
+        for i in range(max_task):
             for c_id in class_mask[i]:
                 for cluster in range(len(cls_mean[c_id])):
                     mean = cls_mean[c_id][cluster]
