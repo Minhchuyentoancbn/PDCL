@@ -543,6 +543,7 @@ def train_replay(model: torch.nn.Module, criterion, data_loader: Iterable, optim
                     device: torch.device, task_id=-1, class_mask=None, args=None, old_head=None):
     model.train()
     max_norm = args.clip_grad
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=args.replay_epochs)
 
     for epoch in range(args.replay_epochs):
         metric_logger = utils.MetricLogger(delimiter="  ")
@@ -634,3 +635,4 @@ def train_replay(model: torch.nn.Module, criterion, data_loader: Iterable, optim
 
         metric_logger.synchronize_between_processes()
         print("Averaged stats:", metric_logger)
+        scheduler.step()
