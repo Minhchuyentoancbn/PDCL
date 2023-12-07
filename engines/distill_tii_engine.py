@@ -542,8 +542,6 @@ def sample_data(task_id, class_mask, device, args, include_current_task=True, tr
 def train_replay(model: torch.nn.Module, criterion, data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, task_id=-1, class_mask=None, args=None, old_head=None):
     model.train()
-    max_norm = args.clip_grad
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=args.replay_epochs)
 
     for epoch in range(args.replay_epochs):
         metric_logger = utils.MetricLogger(delimiter="  ")
@@ -599,14 +597,14 @@ def train_replay(model: torch.nn.Module, criterion, data_loader: Iterable, optim
                     if args.train_mask and class_mask is not None:
                         old_head_logits = old_head_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-                    # old_target = torch.argmax(old_head_logits, dim=1)
-                    sample_loss = ((-F.log_softmax(sample_logits, dim=1)[:, mask] * 
-                                    F.softmax(old_head_logits, dim=1)[:, mask]).sum(dim=1)).sum()
+                    old_target = torch.argmax(old_head_logits, dim=1)
+                    # sample_loss = ((-F.log_softmax(sample_logits, dim=1)[:, mask] * 
+                    #                 F.softmax(old_head_logits, dim=1)[:, mask]).sum(dim=1)).sum()
                     # sample_loss = ((-F.log_softmax(sample_logits, dim=1)[:, mask] * 
                     #                F.softmax(old_head_logits, dim=1)[:, mask]).sum(dim=1) * (tgt == old_target).float()).sum()
                     
                     # sample_loss = F.cross_entropy(sample_logits, old_target, reduction='sum')
-                    # sample_loss = F.cross_entropy(sample_logits[tgt == old_target, :], old_target[tgt == old_target], reduction='sum')
+                    sample_loss = F.cross_entropy(sample_logits[tgt == old_target, :], old_target[tgt == old_target], reduction='sum')
                     # criterion(sample_logits, old_target)
                     sampled_loss += sample_loss
                     num_samples += inp.shape[0]
@@ -615,10 +613,8 @@ def train_replay(model: torch.nn.Module, criterion, data_loader: Iterable, optim
                 sampled_loss /= num_samples
                 loss += args.reg * sampled_loss
 
-
             optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
             optimizer.step()
 
             if not math.isfinite(loss.item()):
@@ -635,4 +631,3 @@ def train_replay(model: torch.nn.Module, criterion, data_loader: Iterable, optim
 
         metric_logger.synchronize_between_processes()
         print("Averaged stats:", metric_logger)
-        scheduler.step()
