@@ -169,6 +169,12 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
                     sample_logits = outputs['logits']
 
                     if args.train_mask and class_mask is not None:
+                        mask = []
+                        for id in range(task_id+1):
+                            mask.extend(class_mask[id])
+                        # print(mask)
+                        not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
+                        not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
                         sample_logits = sample_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
                     with torch.no_grad():
@@ -183,8 +189,6 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
                         not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
                         old_head_logits = old_head_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-                    print(F.log_softmax(sample_logits, dim=1)[:, mask])
-                    print(F.softmax(old_head_logits, dim=1)[:, mask])
                     sample_loss = (-F.log_softmax(sample_logits, dim=1)[:, mask] * 
                                    F.softmax(old_head_logits, dim=1)[:, mask]).sum(dim=1).mean()
                     sampled_loss += sample_loss
