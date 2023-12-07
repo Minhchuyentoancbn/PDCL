@@ -58,13 +58,13 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
             if lr_scheduler:
                 lr_scheduler.step(epoch)
 
-        # print('-' * 20)
-        # print(f'Evaluate task {task_id + 1} before CA')
-        # test_stats_pre_ca = evaluate_till_now(model=model, data_loader=data_loader,
-        #                                       device=device,
-        #                                       task_id=task_id, class_mask=class_mask, target_task_map=target_task_map,
-        #                                       acc_matrix=pre_ca_acc_matrix, args=args)
-        # print('-' * 20)
+        print('-' * 20)
+        print(f'Evaluate task {task_id + 1} before CA')
+        test_stats_pre_ca = evaluate_till_now(model=model, data_loader=data_loader,
+                                              device=device,
+                                              task_id=task_id, class_mask=class_mask, target_task_map=target_task_map,
+                                              acc_matrix=pre_ca_acc_matrix, args=args)
+        print('-' * 20)
 
         # TODO compute mean and variance
         print('-' * 20)
@@ -74,7 +74,7 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
         print('-' * 20)
 
         # TODO classifier alignment
-        if task_id > 0 and (not args.use_gaussian):
+        if task_id > 0:
             print('-' * 20)
             print(f'Align classifier for task {task_id + 1}')
             train_task_adaptive_prediction(model, args, device, class_mask, task_id, data_loader[task_id]['train'], old_head=old_head)
