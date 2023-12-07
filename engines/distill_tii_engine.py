@@ -20,6 +20,98 @@ import utils
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 
+def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Module,
+                       criterion, data_loader: Iterable, data_loader_per_cls: Iterable,
+                       optimizer: torch.optim.Optimizer, lr_scheduler,
+                       device: torch.device,
+                       class_mask=None, target_task_map=None, args=None, ):
+    # create matrix to save end-of-task accuracies
+    acc_matrix = np.zeros((args.num_tasks, args.num_tasks))
+    pre_ca_acc_matrix = np.zeros((args.num_tasks, args.num_tasks))
+    global cls_mean
+    global cls_cov
+    cls_mean = dict()
+    cls_cov = dict()
+
+    for task_id in range(args.num_tasks):
+
+        # Create new optimizer for each task to clear optimizer status
+        if task_id > 0 and args.reinit_optimizer:
+            optimizer = create_optimizer(args, model)
+            if args.sched != 'constant':
+                lr_scheduler, _ = create_scheduler(args, optimizer)
+            elif args.sched == 'constant':
+                lr_scheduler = None
+
+        for epoch in range(args.epochs):
+            # Train model
+            train_stats = train_one_epoch(model=model, criterion=criterion,
+                                          data_loader=data_loader[task_id]['train'], optimizer=optimizer,
+                                          device=device, epoch=epoch, max_norm=args.clip_grad,
+                                          set_training_mode=True, task_id=task_id, class_mask=class_mask, args=args,
+                                          )
+
+            if lr_scheduler:
+                lr_scheduler.step(epoch)
+
+        print('-' * 20)
+        print(f'Evaluate task {task_id + 1} before CA')
+        test_stats_pre_ca = evaluate_till_now(model=model, data_loader=data_loader,
+                                              device=device,
+                                              task_id=task_id, class_mask=class_mask, target_task_map=target_task_map,
+                                              acc_matrix=pre_ca_acc_matrix, args=args)
+        print('-' * 20)
+
+        # TODO compute mean and variance
+        print('-' * 20)
+        print(f'Compute mean and variance for task {task_id + 1}')
+        _compute_mean(model=model, data_loader=data_loader_per_cls, device=device, class_mask=class_mask[task_id],
+                      args=args)
+        print('-' * 20)
+
+        # TODO classifier alignment
+        if task_id > 0:
+            print('-' * 20)
+            print(f'Align classifier for task {task_id + 1}')
+            train_task_adaptive_prediction(model, args, device, class_mask, task_id)
+            print('-' * 20)
+
+        # Evaluate model
+        print('-' * 20)
+        print(f'Evaluate task {task_id + 1} after CA')
+        test_stats = evaluate_till_now(model=model, data_loader=data_loader,
+                                       device=device,
+                                       task_id=task_id, class_mask=class_mask, target_task_map=target_task_map,
+                                       acc_matrix=acc_matrix, args=args)
+        print('-' * 20)
+
+        if args.output_dir and utils.is_main_process():
+            Path(os.path.join(args.output_dir, 'checkpoint')).mkdir(parents=True, exist_ok=True)
+
+            checkpoint_path = os.path.join(args.output_dir, 'checkpoint/task{}_checkpoint.pth'.format(task_id + 1))
+            state_dict = {
+                'model': model_without_ddp.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'epoch': epoch,
+                'args': args,
+            }
+            if args.sched is not None and args.sched != 'constant':
+                state_dict['lr_scheduler'] = lr_scheduler.state_dict()
+
+            utils.save_on_master(state_dict, checkpoint_path)
+
+        log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
+                     **{f'test_{k}': v for k, v in test_stats.items()},
+                     'epoch': epoch, }
+
+        if args.output_dir and utils.is_main_process():
+            with open(os.path.join(args.output_dir,
+                                   '{}_stats.txt'.format(datetime.datetime.now().strftime('log_%Y_%m_%d_%H_%M'))),
+                      'a') as f:
+                f.write(json.dumps(log_stats) + '\n')
+
+
+
 def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, max_norm: float = 0,
                     set_training_mode=True, task_id=-1, class_mask=None, args=None):
@@ -209,98 +301,6 @@ def _compute_mean(model: torch.nn.Module, data_loader: Iterable, device: torch.d
             cls_cov[cls_id] = cluster_vars
 
 
-
-def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Module,
-                       criterion, data_loader: Iterable, data_loader_per_cls: Iterable,
-                       optimizer: torch.optim.Optimizer, lr_scheduler,
-                       device: torch.device,
-                       class_mask=None, target_task_map=None, args=None, ):
-    # create matrix to save end-of-task accuracies
-    acc_matrix = np.zeros((args.num_tasks, args.num_tasks))
-    pre_ca_acc_matrix = np.zeros((args.num_tasks, args.num_tasks))
-    global cls_mean
-    global cls_cov
-    cls_mean = dict()
-    cls_cov = dict()
-
-    for task_id in range(args.num_tasks):
-
-        # Create new optimizer for each task to clear optimizer status
-        if task_id > 0 and args.reinit_optimizer:
-            optimizer = create_optimizer(args, model)
-            if args.sched != 'constant':
-                lr_scheduler, _ = create_scheduler(args, optimizer)
-            elif args.sched == 'constant':
-                lr_scheduler = None
-
-        for epoch in range(args.epochs):
-            # Train model
-            train_stats = train_one_epoch(model=model, criterion=criterion,
-                                          data_loader=data_loader[task_id]['train'], optimizer=optimizer,
-                                          device=device, epoch=epoch, max_norm=args.clip_grad,
-                                          set_training_mode=True, task_id=task_id, class_mask=class_mask, args=args,
-                                          )
-
-            if lr_scheduler:
-                lr_scheduler.step(epoch)
-
-        print('-' * 20)
-        print(f'Evaluate task {task_id + 1} before CA')
-        test_stats_pre_ca = evaluate_till_now(model=model, data_loader=data_loader,
-                                              device=device,
-                                              task_id=task_id, class_mask=class_mask, target_task_map=target_task_map,
-                                              acc_matrix=pre_ca_acc_matrix, args=args)
-        print('-' * 20)
-
-        # TODO compute mean and variance
-        print('-' * 20)
-        print(f'Compute mean and variance for task {task_id + 1}')
-        _compute_mean(model=model, data_loader=data_loader_per_cls, device=device, class_mask=class_mask[task_id],
-                      args=args)
-        print('-' * 20)
-
-        # TODO classifier alignment
-        if task_id > 0:
-            print('-' * 20)
-            print(f'Align classifier for task {task_id + 1}')
-            train_task_adaptive_prediction(model, args, device, class_mask, task_id)
-            print('-' * 20)
-
-        # Evaluate model
-        print('-' * 20)
-        print(f'Evaluate task {task_id + 1} after CA')
-        test_stats = evaluate_till_now(model=model, data_loader=data_loader,
-                                       device=device,
-                                       task_id=task_id, class_mask=class_mask, target_task_map=target_task_map,
-                                       acc_matrix=acc_matrix, args=args)
-        print('-' * 20)
-
-        if args.output_dir and utils.is_main_process():
-            Path(os.path.join(args.output_dir, 'checkpoint')).mkdir(parents=True, exist_ok=True)
-
-            checkpoint_path = os.path.join(args.output_dir, 'checkpoint/task{}_checkpoint.pth'.format(task_id + 1))
-            state_dict = {
-                'model': model_without_ddp.state_dict(),
-                'optimizer': optimizer.state_dict(),
-                'epoch': epoch,
-                'args': args,
-            }
-            if args.sched is not None and args.sched != 'constant':
-                state_dict['lr_scheduler'] = lr_scheduler.state_dict()
-
-            utils.save_on_master(state_dict, checkpoint_path)
-
-        log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
-                     **{f'test_{k}': v for k, v in test_stats.items()},
-                     'epoch': epoch, }
-
-        if args.output_dir and utils.is_main_process():
-            with open(os.path.join(args.output_dir,
-                                   '{}_stats.txt'.format(datetime.datetime.now().strftime('log_%Y_%m_%d_%H_%M'))),
-                      'a') as f:
-                f.write(json.dumps(log_stats) + '\n')
-
-
 def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_mask=None, task_id=-1):
     model.train()
     run_epochs = args.crct_epochs
@@ -326,48 +326,12 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
 
     # TODO: efficiency may be improved by encapsulating sampled data into Datasets class and using distributed sampler.
     for epoch in range(run_epochs):
-
-        sampled_data = []
-        sampled_label = []
-        num_sampled_pcls = args.batch_size
-
         metric_logger = utils.MetricLogger(delimiter="  ")
         metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
         metric_logger.add_meter('Loss', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
-
-        if args.ca_storage_efficient_method in ['covariance', 'variance']:
-            for i in range(task_id + 1):
-                for c_id in class_mask[i]:
-                    mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
-                    cov = cls_cov[c_id].to(device)
-                    if args.ca_storage_efficient_method == 'variance':
-                        cov = torch.diag(cov)
-                    m = MultivariateNormal(mean.float(), cov.float())
-                    sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
-                    sampled_data.append(sampled_data_single)
-
-                    sampled_label.extend([c_id] * num_sampled_pcls)
-
-        elif args.ca_storage_efficient_method == 'multi-centroid':
-            for i in range(task_id + 1):
-                for c_id in class_mask[i]:
-                    for cluster in range(len(cls_mean[c_id])):
-                        mean = cls_mean[c_id][cluster]
-                        var = cls_cov[c_id][cluster]
-                        if var.mean() == 0:
-                            continue
-                        m = MultivariateNormal(mean.float(), (torch.diag(var) + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)).float())
-                        sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
-                        sampled_data.append(sampled_data_single)
-                        sampled_label.extend([c_id] * num_sampled_pcls)
-
-        else:
-            raise NotImplementedError
-
-
-        sampled_data = torch.cat(sampled_data, dim=0).float().to(device)
-        sampled_label = torch.tensor(sampled_label).long().to(device)
-
+        num_sampled_pcls = args.batch_size
+        
+        sampled_data, sampled_label = sample_test_data(task_id, class_mask, device, args)
         inputs = sampled_data
         targets = sampled_label
 
@@ -446,3 +410,44 @@ def compute_confusion_matrix(model: torch.nn.Module, data_loader,
     print(f'TII Acc: {np.trace(confusion_matrix) / np.sum(confusion_matrix)}')
 
     return confusion_matrix
+
+
+def sample_test_data(task_id, class_mask, device, args):
+    sampled_data = []
+    sampled_label = []
+    num_sampled_pcls = args.batch_size
+
+    if args.ca_storage_efficient_method in ['covariance', 'variance']:
+        for i in range(task_id + 1):
+            for c_id in class_mask[i]:
+                mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
+                cov = cls_cov[c_id].to(device)
+                if args.ca_storage_efficient_method == 'variance':
+                    cov = torch.diag(cov)
+                m = MultivariateNormal(mean.float(), cov.float())
+                sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
+                sampled_data.append(sampled_data_single)
+
+                sampled_label.extend([c_id] * num_sampled_pcls)
+
+    elif args.ca_storage_efficient_method == 'multi-centroid':
+        for i in range(task_id + 1):
+            for c_id in class_mask[i]:
+                for cluster in range(len(cls_mean[c_id])):
+                    mean = cls_mean[c_id][cluster]
+                    var = cls_cov[c_id][cluster]
+                    if var.mean() == 0:
+                        continue
+                    m = MultivariateNormal(mean.float(), (torch.diag(var) + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)).float())
+                    sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
+                    sampled_data.append(sampled_data_single)
+                    sampled_label.extend([c_id] * num_sampled_pcls)
+
+    else:
+        raise NotImplementedError
+
+
+    sampled_data = torch.cat(sampled_data, dim=0).float().to(device)
+    sampled_label = torch.tensor(sampled_label).long().to(device)
+
+    return sampled_data, sampled_label
