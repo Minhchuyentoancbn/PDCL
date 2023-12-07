@@ -191,11 +191,11 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
                         old_head_logits = old_head_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
                     old_target = torch.argmax(old_head_logits, dim=1)
-                    sample_loss = ((-F.log_softmax(sample_logits, dim=1)[:, mask] * 
-                                   F.softmax(old_head_logits, dim=1)[:, mask]).sum(dim=1) * (tgt == old_target).float()).sum()
+                    # sample_loss = ((-F.log_softmax(sample_logits, dim=1)[:, mask] * 
+                    #                F.softmax(old_head_logits, dim=1)[:, mask]).sum(dim=1) * (tgt == old_target).float()).sum()
                     
                     # sample_loss = F.cross_entropy(sample_logits, old_target, reduction='sum')
-                    # sample_loss = F.cross_entropy(sample_logits[tgt == old_target, :], old_target[tgt == old_target], reduction='sum')
+                    sample_loss = F.cross_entropy(sample_logits[tgt == old_target, :], old_target[tgt == old_target], reduction='sum')
                     # criterion(sample_logits, old_target)
                     sampled_loss += sample_loss
                     # num_samples += inp.shape[0]
