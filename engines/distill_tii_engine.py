@@ -48,13 +48,13 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
                 lr_scheduler = None
 
 
-        for epoch in range(args.epochs):
-            # Train model
-            train_stats = train_initial(model=model, criterion=criterion,
-                                          data_loader=data_loader[task_id]['train'], optimizer=optimizer,
-                                          device=device, epoch=epoch, max_norm=args.clip_grad,
-                                          set_training_mode=True, task_id=task_id, class_mask=class_mask, args=args,
-                                          old_head=old_head, )
+            for epoch in range(args.epochs):
+                # Train model
+                train_stats = train_initial(model=model, criterion=criterion,
+                                            data_loader=data_loader[task_id]['train'], optimizer=optimizer,
+                                            device=device, epoch=epoch, max_norm=args.clip_grad,
+                                            set_training_mode=True, task_id=task_id, class_mask=class_mask, args=args,
+                                            old_head=old_head, )
 
             if lr_scheduler:
                 lr_scheduler.step(epoch)
