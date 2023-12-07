@@ -128,7 +128,7 @@ def get_args_parser(subparsers):
     subparsers.add_argument('--pull_constraint_coeff', default=1.0, type=float)
     subparsers.add_argument('--same_key_value', default=False, type=bool)
 
-    # ViT parameters
+    # ViT parametersure
     subparsers.add_argument('--global_pool', default='token', choices=['token', 'avg'], type=str,
                             help='type of global pooling for final sequence')
     subparsers.add_argument('--head_type', default='token', choices=['token', 'gap', 'prompt', 'token+prompt'],
@@ -155,3 +155,4 @@ def get_args_parser(subparsers):
 
     # Add by myself
     subparsers.add_argument('--use_gaussian', action='store_true')
+    subparsers.add_argument('--soft_label', action='store_true')
