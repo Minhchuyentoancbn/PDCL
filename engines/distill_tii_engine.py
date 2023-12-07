@@ -544,11 +544,10 @@ def train_replay(model: torch.nn.Module, criterion, data_loader: Iterable, optim
     model.train()
     max_norm = args.clip_grad
 
-    metric_logger = utils.MetricLogger(delimiter="  ")
-    metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
-    metric_logger.add_meter('Loss', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
-
     for epoch in range(args.replay_epochs):
+        metric_logger = utils.MetricLogger(delimiter="  ")
+        metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
+        metric_logger.add_meter('Loss', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
         for input, target in data_loader:
             input = input.to(device, non_blocking=True)
             target = target.to(device, non_blocking=True)
@@ -571,7 +570,6 @@ def train_replay(model: torch.nn.Module, criterion, data_loader: Iterable, optim
                 crct_num = 0
                 for i in range(task_id):
                     crct_num += len(class_mask[i])
-                print(f"crct_num: {crct_num}")
                 sampled_data, sampled_label = sample_data(task_id, class_mask, device, args, include_current_task=False, train=True)
                 inputs = sampled_data
                 targets = sampled_label
@@ -632,7 +630,6 @@ def train_replay(model: torch.nn.Module, criterion, data_loader: Iterable, optim
             metric_logger.meters['Acc@1'].update(acc1.item(), n=input.shape[0])
             metric_logger.meters['Acc@5'].update(acc5.item(), n=input.shape[0])
 
-        
         metric_logger.synchronize_between_processes()
         print("Averaged stats:", metric_logger)
         return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
