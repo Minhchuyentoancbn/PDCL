@@ -482,19 +482,22 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
                         not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
                         old_head_logits = old_head_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-                    old_target = torch.argmax(old_head_logits, dim=1)
+                    if args.soft_label:
+                        old_prob = F.softmax(old_head_logits, dim=1)
+                        sample_loss = (F.cross_entropy(sample_logits, tgt, reduction='none') * old_prob[torch.arange(tgt.shape[0]), tgt]).sum()
+                        num_samples += inp.shape[0]
+                    else:
                     # sample_loss = ((-F.log_softmax(sample_logits, dim=1)[:, mask] * 
                     #                F.softmax(old_head_logits, dim=1)[:, mask]).sum(dim=1)).sum()
                     # sample_loss = ((-F.log_softmax(sample_logits, dim=1)[:, mask] * 
                     #                F.softmax(old_head_logits, dim=1)[:, mask]).sum(dim=1) * (tgt == old_target).float()).sum()
-                    
-                    # sample_loss = F.cross_entropy(sample_logits, old_target, reduction='sum')
-                    sample_loss = F.cross_entropy(sample_logits[tgt == old_target, :], old_target[tgt == old_target], reduction='sum')
-                    # criterion(sample_logits, old_target)
-                    sampled_loss += sample_loss
-                    # num_samples += inp.shape[0]
-                    num_samples += (tgt == old_target).sum().item()
+                        old_target = torch.argmax(old_head_logits, dim=1)
+                        # sample_loss = F.cross_entropy(sample_logits, old_target, reduction='sum')
+                        sample_loss = F.cross_entropy(sample_logits[tgt == old_target, :], old_target[tgt == old_target], reduction='sum')
+                        # criterion(sample_logits, old_target)
+                        num_samples += (tgt == old_target).sum().item()
 
+                    sampled_loss += sample_loss
                 sampled_loss /= num_samples
                 loss += args.reg * sampled_loss
 
