@@ -155,8 +155,3 @@ def get_args_parser(subparsers):
 
     # Add by myself
     subparsers.add_argument('--use_gaussian', action='store_true')
-    subparsers.add_argument('--proto_lr', default=0.005, type=float)
-    subparsers.add_argument('--proto_epochs', default=30, type=int)
-    subparsers.add_argument('--proto_reg', default=0.1, type=float)
-    subparsers.add_argument('--proto_num', default=10, type=int)
-    subparsers.add_argument('--proto_interval', default=1, type=int)
