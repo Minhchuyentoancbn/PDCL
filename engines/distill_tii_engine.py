@@ -545,7 +545,6 @@ def train_replay(model: torch.nn.Module, criterion, data_loader: Iterable, optim
     max_norm = args.clip_grad
 
     for epoch in range(args.replay_epochs):
-        print(f"Replay Epoch {epoch + 1}")
         metric_logger = utils.MetricLogger(delimiter="  ")
         metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
         metric_logger.add_meter('Loss', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
@@ -633,4 +632,4 @@ def train_replay(model: torch.nn.Module, criterion, data_loader: Iterable, optim
 
         metric_logger.synchronize_between_processes()
         print("Averaged stats:", metric_logger)
-        return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+    return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
