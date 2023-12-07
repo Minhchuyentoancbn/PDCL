@@ -580,9 +580,11 @@ def train_replay(model: torch.nn.Module, criterion, data_loader: Iterable, optim
                 inputs = inputs[sf_indexes]
                 targets = targets[sf_indexes]
 
-                for _iter in range(crct_num):
-                    inp = inputs[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
-                    tgt = targets[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
+                for pos in range(0, inputs.size(0), args.batch_size):
+                    inp = inputs[pos:pos+args.batch_size]
+                    tgt = targets[pos:pos+args.batch_size]
+                    # inp = inputs[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
+                    # tgt = targets[_iter * num_sampled_pcls:(_iter + 1) * num_sampled_pcls]
                     outputs = model(inp, fc_only=True)
                     sample_logits = outputs['logits']
 
@@ -632,4 +634,3 @@ def train_replay(model: torch.nn.Module, criterion, data_loader: Iterable, optim
 
         metric_logger.synchronize_between_processes()
         print("Averaged stats:", metric_logger)
-    return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
