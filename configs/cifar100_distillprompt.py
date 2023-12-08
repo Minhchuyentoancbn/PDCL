@@ -152,3 +152,7 @@ def get_args_parser(subparsers):
     subparsers.add_argument('--n_centroids', default=10, type=int)
     # Misc parameters
     subparsers.add_argument('--print_freq', type=int, default=10, help='The frequency of printing')
+
+    # Uncertainty training
+    subparsers.add_argument('--uncertain', action='store_true')
+    subparsers.add_argument('--uncertain_epochs', default=30, type=int)

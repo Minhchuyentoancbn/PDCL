@@ -75,6 +75,9 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
             print(f'Align classifier for task {task_id + 1}')
             train_task_adaptive_prediction(model, args, device, class_mask, task_id,)
             print('-' * 20)
+            if args.uncertain:
+                print('Uncertainty training')
+                uncertainty_train(model, args, device, class_mask, task_id)
 
         # Evaluate model
         print('-' * 20)
@@ -457,3 +460,90 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+
+
+def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, task_id=-1):
+    prior_head = model.get_head()
+
+    model.train()
+    run_epochs = args.uncertain_epochs
+    param_list = [p for p in model.parameters() if p.requires_grad]
+    network_params = [{'params': param_list, 'lr': args.ca_lr, 'weight_decay': args.weight_decay}]
+    if 'mae' in args.model or 'beit' in args.model:
+        optimizer = optim.AdamW(network_params, lr=args.ca_lr / 10, weight_decay=args.weight_decay)
+    else:
+        optimizer = optim.SGD(network_params, lr=args.ca_lr, momentum=0.9, weight_decay=5e-4)
+
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=run_epochs)
+    criterion = torch.nn.CrossEntropyLoss().to(device)
+
+
+    # TODO: efficiency may be improved by encapsulating sampled data into Datasets class and using distributed sampler.
+    for epoch in range(run_epochs):
+            
+        metric_logger = utils.MetricLogger(delimiter="  ")
+        metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
+        metric_logger.add_meter('Loss', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
+
+        sampled_data, sampled_label = sample_data(task_id, class_mask, device, args, include_current_task=True, train=False)
+        inputs = sampled_data
+        targets = sampled_label
+
+        sf_indexes = torch.randperm(inputs.size(0))
+        inputs = inputs[sf_indexes]
+        targets = targets[sf_indexes]
+        #print(targets)
+
+        for pos in range(0, inputs.size(0), args.batch_size):
+            inp = inputs[pos:pos + args.batch_size]
+            tgt = targets[pos:pos + args.batch_size]
+            outputs = model(inp, fc_only=True)
+            logits = outputs['logits']
+
+            if args.train_mask and class_mask is not None:
+                mask = []
+                for id in range(task_id+1):
+                    mask.extend(class_mask[id])
+                # print(mask)
+                not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
+                not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+                logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+
+            with torch.no_grad():
+                prior_output = model.forward_new_head(inp, *prior_head)
+
+            prior_logits = prior_output['logits']
+            if args.train_mask and class_mask is not None:
+                prior_logits = prior_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+            
+            log_prior = F.log_softmax(prior_logits, dim=1)
+            log_q = F.log_softmax(logits, dim=1)
+
+            log_r = (F.log_softmax(log_q, 0) + log_prior)
+
+            if args.train_mask and class_mask is not None:
+                log_r = log_r.index_fill(dim=1, index=not_mask, value=float('-inf'))
+            log_r = F.log_softmax(log_r, dim=1)
+
+            loss = (F.softmax(logits, dim=1) * (log_q - log_r))[:, mask].sum(dim=1).mean()
+
+            acc1, acc5 = accuracy(logits, tgt, topk=(1, 5))
+
+            if not math.isfinite(loss.item()):
+                print("Loss is {}, stopping training".format(loss.item()))
+                sys.exit(1)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            torch.cuda.synchronize()
+
+            metric_logger.update(Loss=loss.item())
+            metric_logger.update(Lr=optimizer.param_groups[0]["lr"])
+            metric_logger.meters['Acc@1'].update(acc1.item(), n=inp.shape[0])
+            metric_logger.meters['Acc@5'].update(acc5.item(), n=inp.shape[0])
+
+        # gather the stats from all processes
+        metric_logger.synchronize_between_processes()
+        print("Averaged stats:", metric_logger)
+        scheduler.step()
