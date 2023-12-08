@@ -496,6 +496,7 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
 
         for pos in range(0, inputs.size(0), args.batch_size):
             inp = inputs[pos:pos + args.batch_size]
+            print("Input:\n", inp)
             tgt = targets[pos:pos + args.batch_size]
             outputs = model(inp, fc_only=True)
             logits = outputs['logits']
