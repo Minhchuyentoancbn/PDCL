@@ -155,4 +155,4 @@ def get_args_parser(subparsers):
 
     # Add by myself
     subparsers.add_argument('--use_gaussian', action='store_true')
-    subparsers.add_argument('--soft_label', action='store_true')
+    subparsers.add_argument('--alpha', default=0.1, type=float)
