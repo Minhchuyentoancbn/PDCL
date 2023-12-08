@@ -463,6 +463,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
 
 
 def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, task_id=-1):
+    torch.autograd.set_detect_anomaly(True)
     prior_head = model.get_head()
 
     model.train()
