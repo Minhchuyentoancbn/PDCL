@@ -462,7 +462,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
                     current_prob = F.softmax(current_head_logits, dim=1)
                     tgt_prob = args.alpha * old_prob + (1 - args.alpha) * current_prob
 
-                    sample_loss = ((-F.log_softmax(sample_logits, dim=1)[:, mask] * tgt_prob[:, mask]).sum(dim=1)).sum()
+                    sample_loss = ((-F.log_softmax(sample_logits, dim=1)[:, old_mask] * tgt_prob[:, old_mask]).sum(dim=1)).sum()
 
                     num_samples += inp.shape[0]
                     sampled_loss += sample_loss
