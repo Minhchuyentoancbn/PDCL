@@ -74,11 +74,10 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
             print('-' * 20)
             print(f'Align classifier for task {task_id + 1}')
             train_task_adaptive_prediction(model, args, device, class_mask, task_id,)
-            train_task_adaptive_prediction(model, args, device, class_mask, task_id,)
             print('-' * 20)
-            # if args.uncertain:
-            #     print('Uncertainty training')
-            #     uncertainty_train(model, args, device, class_mask, task_id)
+            if args.uncertain:
+                print('Uncertainty training')
+                uncertainty_train(model, args, device, class_mask, task_id)
 
         # Evaluate model
         print('-' * 20)
