@@ -532,7 +532,7 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
 
             optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
+            # torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
             optimizer.step()
             torch.cuda.synchronize()
 
