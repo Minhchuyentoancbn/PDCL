@@ -156,3 +156,4 @@ def get_args_parser(subparsers):
     # Uncertainty training
     subparsers.add_argument('--uncertain', action='store_true')
     subparsers.add_argument('--uncertain_epochs', default=30, type=int)
+    subparsers.add_argument('--uncertain_lr', default=0.005, type=float)

@@ -468,11 +468,11 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
     model.train()
     run_epochs = args.uncertain_epochs
     param_list = [p for p in model.parameters() if p.requires_grad]
-    network_params = [{'params': param_list, 'lr': args.ca_lr, 'weight_decay': args.weight_decay}]
+    network_params = [{'params': param_list, 'lr': args.uncertain_lr, 'weight_decay': args.weight_decay}]
     if 'mae' in args.model or 'beit' in args.model:
-        optimizer = optim.AdamW(network_params, lr=args.ca_lr / 10, weight_decay=args.weight_decay)
+        optimizer = optim.AdamW(network_params, lr=args.uncertain_lr / 10, weight_decay=args.weight_decay)
     else:
-        optimizer = optim.SGD(network_params, lr=args.ca_lr, momentum=0.9, weight_decay=5e-4)
+        optimizer = optim.SGD(network_params, lr=args.uncertain_lr, momentum=0.9, weight_decay=5e-4)
 
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=run_epochs)
 
@@ -530,9 +530,10 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
                 print("Loss is {}, stopping training".format(loss.item()))
                 sys.exit(1)
             print(model.head.weight)
-            
+
             optimizer.zero_grad()
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
             optimizer.step()
             torch.cuda.synchronize()
 
