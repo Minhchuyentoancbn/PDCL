@@ -475,7 +475,6 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
         optimizer = optim.SGD(network_params, lr=args.ca_lr, momentum=0.9, weight_decay=5e-4)
 
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=run_epochs)
-    criterion = torch.nn.CrossEntropyLoss().to(device)
 
 
     # TODO: efficiency may be improved by encapsulating sampled data into Datasets class and using distributed sampler.
@@ -492,7 +491,6 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
         sf_indexes = torch.randperm(inputs.size(0))
         inputs = inputs[sf_indexes]
         targets = targets[sf_indexes]
-        #print(targets)
 
         for pos in range(0, inputs.size(0), args.batch_size):
             inp = inputs[pos:pos + args.batch_size]
@@ -500,13 +498,11 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
             outputs = model(inp, fc_only=True)
             logits = outputs['logits']
 
-            print("Logits:\n", logits)
 
             if args.train_mask and class_mask is not None:
                 mask = []
                 for id in range(task_id+1):
                     mask.extend(class_mask[id])
-                # print(mask)
                 not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
                 not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
                 logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
@@ -521,7 +517,7 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
             log_prior = F.log_softmax(prior_logits, dim=1)
             log_q = F.log_softmax(logits, dim=1)
 
-            log_r = (F.log_softmax(log_q, 0) + log_prior)
+            log_r = (F.log_softmax(log_q, dim=0) + log_prior)
             if args.train_mask and class_mask is not None:
                 log_r = log_r.index_fill(dim=1, index=not_mask, value=float('-inf'))
             log_r = F.log_softmax(log_r, dim=1)
@@ -533,7 +529,8 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
             if not math.isfinite(loss.item()):
                 print("Loss is {}, stopping training".format(loss.item()))
                 sys.exit(1)
-
+            print(model.head.weight)
+            
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
