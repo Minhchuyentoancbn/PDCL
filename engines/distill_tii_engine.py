@@ -311,7 +311,9 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
                 if args.train_mask and class_mask is not None:
                     old_logits = old_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
                 old_prob = F.softmax(old_logits, dim=1)
-                loss = (F.cross_entropy(logits, tgt, reduction='none') * old_prob[torch.arange(tgt.shape[0]), tgt]).mean()
+                # loss = (F.cross_entropy(logits, tgt, reduction='none') * old_prob[torch.arange(tgt.shape[0]), tgt]).mean()
+                
+                loss = ((-F.log_softmax(logits, dim=1)[:, mask] * old_prob[:, mask]).sum(dim=1)).mean()            
             else:
                 loss = criterion(logits, tgt)
 
