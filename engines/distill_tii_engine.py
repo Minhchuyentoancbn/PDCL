@@ -305,7 +305,7 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
                 not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
                 logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-            if args.use_gaussian and args.soft_label:
+            if args.soft_label:
                 old_outputs = model.forward_new_head(inp, *old_head)
                 old_logits = old_outputs['logits']
                 if args.train_mask and class_mask is not None:
