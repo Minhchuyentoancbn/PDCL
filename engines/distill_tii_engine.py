@@ -388,6 +388,9 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
     if args.distributed and utils.get_world_size() > 1:
         data_loader.sampler.set_epoch(epoch)
 
+    if old_head is not None:
+        print("Using old head")
+
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
     metric_logger.add_meter('Loss', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
