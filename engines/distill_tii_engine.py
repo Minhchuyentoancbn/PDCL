@@ -529,7 +529,6 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
             if not math.isfinite(loss.item()):
                 print("Loss is {}, stopping training".format(loss.item()))
                 sys.exit(1)
-            print(model.head.weight)
 
             optimizer.zero_grad()
             loss.backward()
@@ -537,7 +536,6 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
             optimizer.step()
             torch.cuda.synchronize()
 
-            print(model.head.weight)
 
             metric_logger.update(Loss=loss.item())
             metric_logger.update(Lr=optimizer.param_groups[0]["lr"])
