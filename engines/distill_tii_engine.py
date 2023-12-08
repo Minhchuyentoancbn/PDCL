@@ -463,7 +463,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
 
 
 def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, task_id=-1):
-    prior_head = model.get_head()
+    # prior_head = model.get_head()
 
     model.train()
     run_epochs = args.uncertain_epochs
@@ -479,6 +479,7 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
 
     # TODO: efficiency may be improved by encapsulating sampled data into Datasets class and using distributed sampler.
     for epoch in range(run_epochs):
+        prior_head = model.get_head()
             
         metric_logger = utils.MetricLogger(delimiter="  ")
         metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
