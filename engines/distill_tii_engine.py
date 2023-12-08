@@ -517,6 +517,7 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
                 prior_logits = prior_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
             
             log_prior = F.log_softmax(prior_logits, dim=1)
+            print("Logits:\n", logits)
             log_q = F.log_softmax(logits, dim=1)
 
             print("Log q:\n", log_q)
