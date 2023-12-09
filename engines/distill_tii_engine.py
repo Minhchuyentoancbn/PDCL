@@ -584,4 +584,7 @@ def compute_priors(x: torch.Tensor, device: torch.device, task_id=-1, class_mask
                 m = MultivariateNormal(mean.float(), (torch.diag(var) + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)).float())
                 priors[:, c_id] += m.log_prob(x).exp()
 
-    return F.log_softmax(priors[:, mask], dim=1)
+    priors = priors[:, mask]
+    priors = priors / priors.sum(dim=1, keepdim=True)
+
+    return priors.log()
