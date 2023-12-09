@@ -581,14 +581,13 @@ def compute_priors(x: torch.Tensor, device: torch.device, task_id=-1, class_mask
                 if var.mean() == 0:
                     continue
                 m = MultivariateNormal(mean.float(), (torch.diag(var) + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)).float())
+                print("Log prob")
+                print(m.log_prob(x))
+                print("Exp")
+                print(m.log_prob(x).exp())
                 priors[:, c_id] += m.log_prob(x).exp()
-        
-        print(priors[:, c_id])
 
     priors = priors[:, mask]
-
-    print("Before normalization: ")
-    print(priors)
 
     priors = priors / priors.sum(dim=1, keepdim=True)
 
