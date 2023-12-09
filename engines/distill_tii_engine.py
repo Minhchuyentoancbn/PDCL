@@ -431,13 +431,40 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
         output = model(input)
         logits = output['logits']
 
-        # here is the trick to mask out classes of non-current tasks
-        if args.train_mask and class_mask is not None:
-            mask = class_mask[task_id]
-            not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
-            not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
-            logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
-        loss = criterion(logits, target)
+        if args.use_gaussian:
+            # here is the trick to mask out classes of non-current tasks
+            if args.train_mask and class_mask is not None:
+                mask = []
+                for id in range(task_id+1):
+                    mask.extend(class_mask[id])
+                not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
+                not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+                logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+            
+            loss = F.cross_entropy(logits, target, reduction='sum')
+            num_samples = input.size(0)
+
+            sampled_data, sampled_label = sample_data(task_id, class_mask, device, args, include_current_task=False, train=True)
+            for pos in range(0, sampled_data.size(0), args.batch_size):
+                inp = sampled_data[pos:pos + args.batch_size]
+                tgt = sampled_label[pos:pos + args.batch_size]
+                sample_outputs = model(inp, fc_only=True)
+                logits_sampled = sample_outputs['logits']
+                if args.train_mask and class_mask is not None:
+                    logits_sampled = logits_sampled.index_fill(dim=1, index=not_mask, value=float('-inf'))
+                loss += F.cross_entropy(logits_sampled, tgt, reduction='sum')
+                num_samples += inp.size(0)
+
+            loss = loss / num_samples
+
+        else:
+            # here is the trick to mask out classes of non-current tasks
+            if args.train_mask and class_mask is not None:
+                mask = class_mask[task_id]
+                not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
+                not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+                logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+            loss = criterion(logits, target)
 
         optimizer.zero_grad()
         loss.backward()
@@ -516,15 +543,8 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
                 prior_logits = prior_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
             
             log_q = F.log_softmax(logits, dim=1)
-
-            prior = torch.ones_like(prior_logits, device=device)
-            prior[torch.arange(prior_logits.shape[0]), tgt] = 0
-            prior = prior[:, mask]
-            prior = prior / prior.sum(dim=1, keepdim=True)
-            prior = prior.clamp(min=1e-7)
-            log_prior = torch.log(prior)
             
-            # log_prior = F.log_softmax(prior_logits, dim=1)
+            log_prior = F.log_softmax(prior_logits, dim=1)
             log_r = (F.log_softmax(log_q[:, mask], dim=0) + log_prior[:, mask])
             log_r = F.log_softmax(log_r, dim=1)
 
