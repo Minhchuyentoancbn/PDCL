@@ -515,13 +515,15 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
             if args.train_mask and class_mask is not None:
                 prior_logits = prior_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
             
-            log_prior = F.log_softmax(prior_logits, dim=1)
+            log_r = compute_priors(inp, device, task_id, class_mask, args,)
+
             log_q = F.log_softmax(logits, dim=1)
 
-            log_r = (F.log_softmax(log_q[:, mask], dim=0) + log_prior[:, mask])
-            # if args.train_mask and class_mask is not None:
-            #     log_r = log_r.index_fill(dim=1, index=not_mask, value=float('-inf'))
-            log_r = F.log_softmax(log_r, dim=1)
+            # log_prior = F.log_softmax(prior_logits, dim=1)
+            # log_r = (F.log_softmax(log_q[:, mask], dim=0) + log_prior[:, mask])
+            # # if args.train_mask and class_mask is not None:
+            # #     log_r = log_r.index_fill(dim=1, index=not_mask, value=float('-inf'))
+            # log_r = F.log_softmax(log_r, dim=1)
 
             if args.rq_loss:
                 loss = ((log_r * log_r.exp()).sum(1) - (log_q[:, mask] * log_r.exp()).sum(1)).mean()
@@ -550,3 +552,35 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
         metric_logger.synchronize_between_processes()
         print("Averaged stats:", metric_logger)
         scheduler.step()
+
+
+def compute_priors(x: torch.Tensor, device: torch.device, task_id=-1, class_mask=None, args=None, ):
+    priors = torch.zeros((x.shape[0], args.nb_classes)).to(device)
+    if args.train_mask and class_mask is not None:
+        mask = []
+        for id in range(task_id+1):
+            mask.extend(class_mask[id])
+        not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
+        not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+        priors = priors.index_fill(dim=1, index=not_mask, value=float('-inf'))
+    else:
+        mask = np.arange(args.nb_classes)
+
+    for c_id in mask:
+        if args.ca_storage_efficient_method in ['covariance', 'variance']:
+            mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
+            cov = cls_cov[c_id].to(device)
+            if args.ca_storage_efficient_method == 'variance':
+                cov = torch.diag(cov)
+            m = MultivariateNormal(mean.float(), cov.float())
+            priors[:, c_id] = m.log_prob(x).exp()
+        elif args.ca_storage_efficient_method == 'multi-centroid':
+            for cluster in range(len(cls_mean[c_id])):
+                mean = cls_mean[c_id][cluster]
+                var = cls_cov[c_id][cluster]
+                if var.mean() == 0:
+                    continue
+                m = MultivariateNormal(mean.float(), (torch.diag(var) + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)).float())
+                priors[:, c_id] += m.log_prob(x).exp()
+
+    return F.log_softmax(priors[:, mask], dim=1)
