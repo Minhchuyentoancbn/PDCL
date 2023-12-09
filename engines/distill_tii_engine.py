@@ -520,10 +520,6 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
             log_prior = compute_priors(inp, device, task_id, class_mask, args,)
             log_r = (F.log_softmax(log_q[:, mask], dim=0) + log_prior)
             log_r = F.log_softmax(log_r, dim=1)
-
-            print(log_prior)
-            print(log_r)
-            print(log_q[:, mask])
             
             # log_prior = F.log_softmax(prior_logits, dim=1)
             # log_r = (F.log_softmax(log_q[:, mask], dim=0) + log_prior[:, mask])
@@ -589,5 +585,7 @@ def compute_priors(x: torch.Tensor, device: torch.device, task_id=-1, class_mask
 
     priors = priors[:, mask]
     priors = priors / priors.sum(dim=1, keepdim=True)
+
+    print(f"Priors before log:", priors)
 
     return priors.log()
