@@ -506,7 +506,7 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
 
     # TODO: efficiency may be improved by encapsulating sampled data into Datasets class and using distributed sampler.
     for epoch in range(run_epochs):
-        if epoch % (args.reset_head_interval + 1) == 0:
+        if epoch % (args.reset_head_interval + 1) == 0 and args.reset_head:
             prior_head = model.get_head()
         # prior_head = model.get_head()
             
