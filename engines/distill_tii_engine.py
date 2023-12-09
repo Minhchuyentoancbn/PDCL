@@ -78,6 +78,8 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
             if args.uncertain:
                 print('Uncertainty training')
                 uncertainty_train(model, args, device, class_mask, task_id)
+                print('Uncertainty training')
+                uncertainty_train(model, args, device, class_mask, task_id)
 
         # Evaluate model
         print('-' * 20)
