@@ -71,10 +71,10 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
 
         # TODO classifier alignment
         if task_id > 0:
-            print('-' * 20)
-            print(f'Align classifier for task {task_id + 1}')
-            train_task_adaptive_prediction(model, args, device, class_mask, task_id,)
-            print('-' * 20)
+            # print('-' * 20)
+            # print(f'Align classifier for task {task_id + 1}')
+            # train_task_adaptive_prediction(model, args, device, class_mask, task_id,)
+            # print('-' * 20)
             if args.uncertain:
                 print('Uncertainty training')
                 uncertainty_train(model, args, device, class_mask, task_id)
@@ -516,8 +516,15 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
                 prior_logits = prior_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
             
             log_q = F.log_softmax(logits, dim=1)
+
+            prior = torch.ones_like(prior_logits, device=device)
+            prior[torch.arange(prior_logits.shape[0]), tgt] = 0
+            prior = prior[:, mask]
+            prior = prior / prior.sum(dim=1, keepdim=True)
+            prior = prior.clamp(min=1e-7)
+            log_prior = torch.log(prior)
             
-            log_prior = F.log_softmax(prior_logits, dim=1)
+            # log_prior = F.log_softmax(prior_logits, dim=1)
             log_r = (F.log_softmax(log_q[:, mask], dim=0) + log_prior[:, mask])
             log_r = F.log_softmax(log_r, dim=1)
 
