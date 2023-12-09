@@ -515,14 +515,15 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
             if args.train_mask and class_mask is not None:
                 prior_logits = prior_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
             
-            log_r = compute_priors(inp, device, task_id, class_mask, args,)
-
             log_q = F.log_softmax(logits, dim=1)
 
+            log_prior = compute_priors(inp, device, task_id, class_mask, args,)
+            log_r = (F.log_softmax(log_q[:, mask], dim=0) + log_prior)
+            log_r = F.log_softmax(log_r, dim=1)
+            
             # log_prior = F.log_softmax(prior_logits, dim=1)
+            
             # log_r = (F.log_softmax(log_q[:, mask], dim=0) + log_prior[:, mask])
-            # # if args.train_mask and class_mask is not None:
-            # #     log_r = log_r.index_fill(dim=1, index=not_mask, value=float('-inf'))
             # log_r = F.log_softmax(log_r, dim=1)
 
             if args.rq_loss:
