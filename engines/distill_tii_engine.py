@@ -78,8 +78,6 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
             if args.uncertain:
                 print('Uncertainty training')
                 uncertainty_train(model, args, device, class_mask, task_id)
-                print('Uncertainty training')
-                uncertainty_train(model, args, device, class_mask, task_id)
 
         # Evaluate model
         print('-' * 20)
@@ -503,7 +501,7 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
     else:
         optimizer = optim.SGD(network_params, lr=args.uncertain_lr, momentum=0.9, weight_decay=5e-4)
 
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=run_epochs)
+    # scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=run_epochs)
 
 
     # TODO: efficiency may be improved by encapsulating sampled data into Datasets class and using distributed sampler.
@@ -576,4 +574,4 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
         # gather the stats from all processes
         metric_logger.synchronize_between_processes()
         print("Averaged stats:", metric_logger)
-        scheduler.step()
+        # scheduler.step()
