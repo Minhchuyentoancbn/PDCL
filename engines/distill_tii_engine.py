@@ -431,7 +431,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
         output = model(input)
         logits = output['logits']
 
-        if args.use_gaussian:
+        if args.use_gaussian and task_id > 0:
             # here is the trick to mask out classes of non-current tasks
             if args.train_mask and class_mask is not None:
                 mask = []
