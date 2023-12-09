@@ -575,20 +575,25 @@ def compute_priors(x: torch.Tensor, device: torch.device, task_id=-1, class_mask
             m = MultivariateNormal(mean.float(), cov.float())
             priors[:, c_id] = m.log_prob(x).exp()
         elif args.ca_storage_efficient_method == 'multi-centroid':
+            log_prior_cluster = torch.zeros((x.shape[0], len(cls_mean[c_id]))).to(device)
             for cluster in range(len(cls_mean[c_id])):
                 mean = cls_mean[c_id][cluster]
                 var = cls_cov[c_id][cluster]
                 if var.mean() == 0:
                     continue
                 m = MultivariateNormal(mean.float(), (torch.diag(var) + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)).float())
-                print("Log prob")
-                print(m.log_prob(x))
-                print("Exp")
-                print(m.log_prob(x).exp())
-                priors[:, c_id] += m.log_prob(x).exp()
+                log_prior_cluster[:, cluster] = m.log_prob(x)
+
+            # Compute log of sum of exponentials trick
+            log_prior_cluster_max = log_prior_cluster.max(dim=1)[0]
+            log_prior_cluster = log_prior_cluster - log_prior_cluster_max.unsqueeze(1)
+            log_prior_cluster = log_prior_cluster.exp()
+            log_prior_cluster = log_prior_cluster.sum(dim=1)
+            log_prior_cluster = log_prior_cluster.log() + log_prior_cluster_max
+
+            priors[:, c_id] = log_prior_cluster
+
 
     priors = priors[:, mask]
 
-    priors = priors / priors.sum(dim=1, keepdim=True)
-
-    return priors.log()
+    return F.log_softmax(priors, dim=1)
