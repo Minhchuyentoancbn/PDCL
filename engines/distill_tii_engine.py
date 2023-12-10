@@ -417,7 +417,7 @@ def sample_data(task_id, class_mask, device, args, include_current_task=True, tr
 
 def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, max_norm: float = 0,
-                    set_training_mode=True, task_id=-1, class_mask=None, args=None, old_head=None
+                    set_training_mode=True, task_id=-1, class_mask=None, args=None
                     ):
     model.train(set_training_mode)
 
@@ -545,6 +545,8 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
             prior_logits = prior_output['logits']
             if args.train_mask and class_mask is not None:
                 prior_logits = prior_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+                print(f"Prior accuracy: {tgt.eq(prior_logits.argmax(dim=1)).sum().item() / tgt.shape[0]}")
+                print(f"Num wrong samples: {tgt.ne(prior_logits.argmax(dim=1)).sum().item()}")
             
             log_q = F.log_softmax(logits, dim=1)
             
