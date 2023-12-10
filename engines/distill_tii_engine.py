@@ -658,7 +658,14 @@ def train_task_adaptive(model: torch.nn.Module, args, device, class_mask=None, t
                 
                 prior_logits = prior_output['logits']
                 if args.train_mask and class_mask is not None:
-                    prior_logits = prior_logits.index_fill(dim=1, index=not_old_mask, value=float('-inf'))[:, mask]
+                    prior_logits = prior_logits.index_fill(dim=1, index=not_old_mask, value=float('-inf'))
+
+                    print(f"Prior accuracy: {tgt.eq(prior_logits.argmax(dim=1)).sum().item() / tgt.shape[0]}")
+                    print(f"Num wrong samples: {tgt.ne(prior_logits.argmax(dim=1)).sum().item()}")
+
+                    prior_logits = prior_logits[:, mask]
+
+                
                 
                 prior = F.softmax(prior_logits, dim=1)
 
