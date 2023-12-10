@@ -546,16 +546,20 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
             if args.train_mask and class_mask is not None:
                 prior_logits = prior_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
             
-            log_q = F.log_softmax(logits, dim=1)
+            # log_q = F.log_softmax(logits, dim=1)
             
-            log_prior = F.log_softmax(prior_logits, dim=1)
-            log_r = (F.log_softmax(log_q[:, mask], dim=0) + log_prior[:, mask])
-            log_r = F.log_softmax(log_r, dim=1)
+            # log_prior = F.log_softmax(prior_logits, dim=1)
+            # log_r = (F.log_softmax(log_q[:, mask], dim=0) + log_prior[:, mask])
+            # log_r = F.log_softmax(log_r, dim=1)
 
             # if args.rq_loss:
-            loss = ((log_r * log_r.exp()).sum(1) - (log_q[:, mask] * log_r.exp()).sum(1)).mean()
+            # loss = ((log_r * log_r.exp()).sum(1) - (log_q[:, mask] * log_r.exp()).sum(1)).mean()
             # else:
             # loss = ((F.softmax(logits, dim=1)[:, mask] * log_q[:, mask]).sum(dim=1) - (F.softmax(logits, dim=1)[:, mask] * log_r).sum(dim=1)).mean()
+            
+            prior = F.softmax(prior_logits, dim=1)[: , mask]
+
+            loss = (-F.log_softmax(logits[:, mask], dim=1) * prior).sum(1).mean()
 
             acc1, acc5 = accuracy(logits, tgt, topk=(1, 5))
 
