@@ -522,7 +522,9 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
             if args.rejection:
                 prior_tgt = prior_logits.argmax(dim=1)
                 logits = logits[prior_tgt == tgt]
-                prior_logits = prior_logits[prior_tgt == tgt]      
+                prior_logits = prior_logits[prior_tgt == tgt]   
+                inp = inp[prior_tgt == tgt]
+                tgt = tgt[prior_tgt == tgt]   
             
             log_q = F.log_softmax(logits, dim=1)
             
@@ -644,7 +646,7 @@ def train_task_adaptive(model: torch.nn.Module, args, device, class_mask=None, t
                     sampled_logits = sampled_logits[prior_tgt == tgt]
                     prior_logits = prior_logits[prior_tgt == tgt]
                     inp = inp[prior_tgt == tgt]
-                
+                    tgt = tgt[prior_tgt == tgt]      
                 
                 prior = F.softmax(prior_logits, dim=1)
 
