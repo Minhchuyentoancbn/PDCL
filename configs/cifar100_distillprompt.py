@@ -157,6 +157,6 @@ def get_args_parser(subparsers):
     subparsers.add_argument('--uncertain', action='store_true')
     subparsers.add_argument('--uncertain_epochs', default=30, type=int)
     subparsers.add_argument('--uncertain_lr', default=0.005, type=float)
-    subparsers.add_argument('--uncertain_loss', defalt='qr', type=str)
+    subparsers.add_argument('--uncertain_loss', default='qr', type=str)
 
     subparsers.add_argument('--use_gaussian', action='store_true')
