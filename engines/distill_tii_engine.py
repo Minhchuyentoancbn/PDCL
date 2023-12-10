@@ -501,14 +501,11 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
     else:
         optimizer = optim.SGD(network_params, lr=args.uncertain_lr, momentum=0.9, weight_decay=5e-4)
 
-    # scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=run_epochs)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=run_epochs)
 
 
     # TODO: efficiency may be improved by encapsulating sampled data into Datasets class and using distributed sampler.
     for epoch in range(run_epochs):
-        if epoch % (args.reset_head_interval + 1) == 0 and args.reset_head:
-            prior_head = model.get_head()
-        # prior_head = model.get_head()
             
         metric_logger = utils.MetricLogger(delimiter="  ")
         metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
@@ -550,10 +547,10 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
             log_r = (F.log_softmax(log_q[:, mask], dim=0) + log_prior[:, mask])
             log_r = F.log_softmax(log_r, dim=1)
 
-            if args.rq_loss:
-                loss = ((log_r * log_r.exp()).sum(1) - (log_q[:, mask] * log_r.exp()).sum(1)).mean()
-            else:
-                loss = ((F.softmax(logits, dim=1)[:, mask] * log_q[:, mask]).sum(dim=1) - (F.softmax(logits, dim=1)[:, mask] * log_r).sum(dim=1)).mean()
+            # if args.rq_loss:
+            #     loss = ((log_r * log_r.exp()).sum(1) - (log_q[:, mask] * log_r.exp()).sum(1)).mean()
+            # else:
+            loss = ((F.softmax(logits, dim=1)[:, mask] * log_q[:, mask]).sum(dim=1) - (F.softmax(logits, dim=1)[:, mask] * log_r).sum(dim=1)).mean()
 
             acc1, acc5 = accuracy(logits, tgt, topk=(1, 5))
 
@@ -567,7 +564,6 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
             optimizer.step()
             torch.cuda.synchronize()
 
-
             metric_logger.update(Loss=loss.item())
             metric_logger.update(Lr=optimizer.param_groups[0]["lr"])
             metric_logger.meters['Acc@1'].update(acc1.item(), n=inp.shape[0])
@@ -576,4 +572,4 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
         # gather the stats from all processes
         metric_logger.synchronize_between_processes()
         print("Averaged stats:", metric_logger)
-        # scheduler.step()
+        scheduler.step()
