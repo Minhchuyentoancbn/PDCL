@@ -671,7 +671,7 @@ def train_task_adaptive(model: torch.nn.Module, args, device, class_mask=None, t
                     log_r = F.log_softmax(log_r, dim=1)
 
                     loss += ((F.softmax(sampled_logits, dim=1)[:, mask] * log_q).sum(dim=1) - (F.softmax(sampled_logits, dim=1)[:, mask] * log_r).sum(dim=1)).sum()
-                elif args.uncertain1_loss == "rq":
+                elif args.uncertain_loss1 == "rq":
                     log_q = F.log_softmax(sampled_logits, dim=1)[:, mask]
                     log_prior = prior.clamp(1e-6).log()
                     log_r = (F.log_softmax(log_q, dim=0) + log_prior)
