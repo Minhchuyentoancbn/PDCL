@@ -160,4 +160,4 @@ def get_args_parser(subparsers):
     subparsers.add_argument('--uncertain_loss1', default='qr', type=str)
     subparsers.add_argument('--uncertain_loss2', default='qr', type=str)
 
-    subparsers.add_argument('--use_gaussian', action='store_true')
+    subparsers.add_argument('--rejection', action='store_true')

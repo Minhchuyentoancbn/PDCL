@@ -436,40 +436,13 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
         output = model(input)
         logits = output['logits']
 
-        if args.use_gaussian and task_id > 0:
-            # here is the trick to mask out classes of non-current tasks
-            if args.train_mask and class_mask is not None:
-                mask = []
-                for id in range(task_id+1):
-                    mask.extend(class_mask[id])
-                not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
-                not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
-                logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
-            
-            loss = F.cross_entropy(logits, target, reduction='sum')
-            num_samples = input.size(0)
-
-            sampled_data, sampled_label = sample_data(task_id, class_mask, device, args, include_current_task=False, train=True)
-            for pos in range(0, sampled_data.size(0), args.batch_size):
-                inp = sampled_data[pos:pos + args.batch_size]
-                tgt = sampled_label[pos:pos + args.batch_size]
-                sample_outputs = model(inp, fc_only=True)
-                logits_sampled = sample_outputs['logits']
-                if args.train_mask and class_mask is not None:
-                    logits_sampled = logits_sampled.index_fill(dim=1, index=not_mask, value=float('-inf'))
-                loss += F.cross_entropy(logits_sampled, tgt, reduction='sum')
-                num_samples += inp.size(0)
-
-            loss = loss / num_samples
-
-        else:
-            # here is the trick to mask out classes of non-current tasks
-            if args.train_mask and class_mask is not None:
-                mask = class_mask[task_id]
-                not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
-                not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
-                logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
-            loss = criterion(logits, target)
+        # here is the trick to mask out classes of non-current tasks
+        if args.train_mask and class_mask is not None:
+            mask = class_mask[task_id]
+            not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
+            not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+            logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+        loss = criterion(logits, target)
 
         optimizer.zero_grad()
         loss.backward()
@@ -545,8 +518,11 @@ def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, tas
             prior_logits = prior_output['logits']
             if args.train_mask and class_mask is not None:
                 prior_logits = prior_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
-                print(f"Prior accuracy: {tgt.eq(prior_logits.argmax(dim=1)).sum().item() / tgt.shape[0]}")
-                print(f"Num wrong samples: {tgt.ne(prior_logits.argmax(dim=1)).sum().item()}")
+
+            if args.rejection:
+                prior_tgt = prior_logits.argmax(dim=1)
+                logits = logits[prior_tgt == tgt]
+                prior_logits = prior_logits[prior_tgt == tgt]      
             
             log_q = F.log_softmax(logits, dim=1)
             
@@ -661,12 +637,13 @@ def train_task_adaptive(model: torch.nn.Module, args, device, class_mask=None, t
                 prior_logits = prior_output['logits']
                 if args.train_mask and class_mask is not None:
                     prior_logits = prior_logits.index_fill(dim=1, index=not_old_mask, value=float('-inf'))
-
-                    print(f"Prior accuracy: {tgt.eq(prior_logits.argmax(dim=1)).sum().item() / tgt.shape[0]}")
-                    print(f"Num wrong samples: {tgt.ne(prior_logits.argmax(dim=1)).sum().item()}")
-
                     prior_logits = prior_logits[:, mask]
 
+                if args.rejection:
+                    prior_tgt = prior_logits.argmax(dim=1)
+                    sampled_logits = sampled_logits[prior_tgt == tgt]
+                    prior_logits = prior_logits[prior_tgt == tgt]
+                    inp = inp[prior_tgt == tgt]
                 
                 
                 prior = F.softmax(prior_logits, dim=1)
