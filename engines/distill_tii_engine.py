@@ -29,6 +29,7 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
     acc_matrix = np.zeros((args.num_tasks, args.num_tasks))
     pre_ca_acc_matrix = np.zeros((args.num_tasks, args.num_tasks))
     uncertainty_acc_matrix = np.zeros((args.num_tasks, args.num_tasks))
+    task_gaussian_acc_matrix = np.zeros((args.num_tasks, args.num_tasks))
     global cls_mean
     global cls_cov
     global old_head
@@ -91,8 +92,17 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
                                                             target_task_map=target_task_map,
                                                             acc_matrix=uncertainty_acc_matrix, args=args)
                 print('-' * 20)
-                print('Uncertainty training')
-                uncertainty_train(model, args, device, class_mask, task_id)
+                print("Uncertain training")
+                train_task_adaptive2(model, args, device, class_mask, task_id, data_loader[task_id]['train'])
+                print('-' * 20)
+                print('Evaluate task {} after uncertain training'.format(task_id + 1))
+                task_gaussian_acc_matrix = evaluate_till_now(model=model, data_loader=data_loader,
+                                                            device=device,
+                                                            task_id=task_id, class_mask=class_mask,
+                                                            target_task_map=target_task_map,
+                                                            acc_matrix=task_gaussian_acc_matrix, args=args)
+                print("Gaussian training")
+                gaussian_train(model, args, device, class_mask, task_id)
 
         # Evaluate model
         print('-' * 20)
@@ -477,7 +487,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
-def uncertainty_train(model: torch.nn.Module, args, device, class_mask=None, task_id=-1):
+def gaussian_train(model: torch.nn.Module, args, device, class_mask=None, task_id=-1):
     prior_head = model.get_head()
 
     model.train()
@@ -707,3 +717,133 @@ def train_task_adaptive(model: torch.nn.Module, args, device, class_mask=None, t
 
 
 
+def train_task_adaptive2(model: torch.nn.Module, args, device, class_mask=None, task_id=-1, data_loader=None):
+    model.train()
+    prior_head = model.get_head()
+
+    run_epochs = args.crct_epochs
+    param_list = [p for p in model.parameters() if p.requires_grad]
+
+    network_params = [{'params': param_list, 'lr': args.ca_lr, 'weight_decay': args.weight_decay}]
+    if 'mae' in args.model or 'beit' in args.model:
+        optimizer = optim.AdamW(network_params, lr=args.ca_lr / 10, weight_decay=args.weight_decay)
+    else:
+        optimizer = optim.SGD(network_params, lr=args.ca_lr, momentum=0.9, weight_decay=5e-4)
+
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=run_epochs)
+
+
+    # TODO: efficiency may be improved by encapsulating sampled data into Datasets class and using distributed sampler.
+    for epoch in range(run_epochs):
+        if args.reset_prior and epoch % (args.reset_prior_interval + 1) == 0:
+            prior_head = model.get_head()
+            
+        metric_logger = utils.MetricLogger(delimiter="  ")
+        metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
+        metric_logger.add_meter('Loss', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
+
+        for input, target in data_loader:
+            input = input.to(device, non_blocking=True)
+            target = target.to(device, non_blocking=True)
+
+            output = model(input)
+            logits = output['logits']
+
+            # here is the trick to mask out classes of non-current tasks
+            if args.train_mask and class_mask is not None:
+                mask = []
+                for id in range(task_id+1):
+                    mask.extend(class_mask[id])
+                not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
+                not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+                logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+                
+            loss = F.cross_entropy(logits, target, reduction='sum')
+            num_samples = input.size(0)
+
+            sampled_data, sampled_label = sample_data(task_id, class_mask, device, args, include_current_task=False, train=True)
+            inputs = sampled_data
+            targets = sampled_label
+
+            sf_indexes = torch.randperm(inputs.size(0))
+            inputs = inputs[sf_indexes]
+            targets = targets[sf_indexes]
+
+            for pos in range(0, inputs.size(0), args.batch_size):
+                inp = inputs[pos:pos + args.batch_size]
+                tgt = targets[pos:pos + args.batch_size]
+                sampled_outputs = model(inp, fc_only=True)
+                sampled_logits = sampled_outputs['logits']
+
+                if args.train_mask and class_mask is not None:
+                    mask = []
+                    old_mask = []
+                    for id in range(task_id+1):
+                        mask.extend(class_mask[id])
+                        if id < task_id:
+                            old_mask.extend(class_mask[id])
+                    # print(mask)
+                    not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
+                    not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+                    not_old_mask = np.setdiff1d(np.arange(args.nb_classes), old_mask)
+                    not_old_mask = torch.tensor(not_old_mask, dtype=torch.int64).to(device)
+                    sampled_logits = sampled_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+
+                with torch.no_grad():
+                    prior_output = model.forward_new_head(inp, *prior_head)
+                
+                prior_logits = prior_output['logits']
+                if args.train_mask and class_mask is not None:
+                    prior_logits = prior_logits.index_fill(dim=1, index=not_old_mask, value=float('-inf'))
+                    prior_logits = prior_logits[:, mask]
+
+                if args.rejection:
+                    prior_tgt = prior_logits.argmax(dim=1)
+                    sampled_logits = sampled_logits[prior_tgt == tgt]
+                    prior_logits = prior_logits[prior_tgt == tgt]
+                    inp = inp[prior_tgt == tgt]
+                    tgt = tgt[prior_tgt == tgt]      
+                
+                prior = F.softmax(prior_logits, dim=1)
+
+                if args.uncertain_loss1 == "ce":
+                    loss += (-F.log_softmax(sampled_logits[:, mask], dim=1) * prior).sum(1).sum()
+                elif args.uncertain_loss1 == "qr":
+                    log_q = F.log_softmax(sampled_logits, dim=1)[:, mask]
+                    log_prior = prior.clamp(1e-6).log()
+                    log_r = (F.log_softmax(log_q, dim=0) + log_prior)
+                    log_r = F.log_softmax(log_r, dim=1)
+
+                    loss += ((F.softmax(sampled_logits, dim=1)[:, mask] * log_q).sum(dim=1) - (F.softmax(sampled_logits, dim=1)[:, mask] * log_r).sum(dim=1)).sum()
+                elif args.uncertain_loss1 == "rq":
+                    log_q = F.log_softmax(sampled_logits, dim=1)[:, mask]
+                    log_prior = prior.clamp(1e-6).log()
+                    log_r = (F.log_softmax(log_q, dim=0) + log_prior)
+                    log_r = F.log_softmax(log_r, dim=1)
+
+                    loss += ((log_r * log_r.exp()).sum(1) - (log_q * log_r.exp()).sum(1)).sum()
+
+                num_samples += inp.size(0)
+
+            loss = loss / num_samples
+
+            acc1, acc5 = accuracy(logits, target, topk=(1, 5))
+
+            if not math.isfinite(loss.item()):
+                print("Loss is {}, stopping training".format(loss.item()))
+                sys.exit(1)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            torch.cuda.synchronize()
+
+            metric_logger.update(Loss=loss.item())
+            metric_logger.update(Lr=optimizer.param_groups[0]["lr"])
+            metric_logger.meters['Acc@1'].update(acc1.item(), n=inp.shape[0])
+            metric_logger.meters['Acc@5'].update(acc5.item(), n=inp.shape[0])
+
+        # gather the stats from all processes
+        metric_logger.synchronize_between_processes()
+        print("Averaged stats:", metric_logger)
+        scheduler.step()
