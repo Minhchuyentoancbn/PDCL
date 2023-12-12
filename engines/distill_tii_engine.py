@@ -28,6 +28,7 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
     # create matrix to save end-of-task accuracies
     acc_matrix = np.zeros((args.num_tasks, args.num_tasks))
     pre_ca_acc_matrix = np.zeros((args.num_tasks, args.num_tasks))
+    uncertainty_acc_matrix = np.zeros((args.num_tasks, args.num_tasks))
     global cls_mean
     global cls_cov
     global old_head
@@ -81,6 +82,13 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
             train_task_adaptive(model, args, device, class_mask, task_id, data_loader[task_id]['train'])
             print('-' * 20)
             if args.uncertain:
+                print('Evaluate task {} before uncertain training'.format(task_id + 1))
+                test_stats_uncertainty = evaluate_till_now(model=model, data_loader=data_loader,
+                                                            device=device,
+                                                            task_id=task_id, class_mask=class_mask,
+                                                            target_task_map=target_task_map,
+                                                            acc_matrix=uncertainty_acc_matrix, args=args)
+                print('-' * 20)
                 print('Uncertainty training')
                 uncertainty_train(model, args, device, class_mask, task_id)
 
