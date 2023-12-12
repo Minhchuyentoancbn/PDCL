@@ -563,9 +563,7 @@ def gaussian_train(model: torch.nn.Module, args, device, class_mask=None, task_i
             log_r = (F.log_softmax(log_q[:, mask], dim=0) + log_prior[:, mask])
             log_r = F.log_softmax(log_r, dim=1)
 
-            if args.uncertain_loss2 == "rq":
-                loss = ((log_r * log_r.exp()).sum(1) - (log_q[:, mask] * log_r.exp()).sum(1)).mean()
-            elif args.uncertain_loss2 == "qr":
+            if args.uncertain_loss2 == "qr":
                 loss = ((F.softmax(logits, dim=1)[:, mask] * log_q[:, mask]).sum(dim=1) - (F.softmax(logits, dim=1)[:, mask] * log_r).sum(dim=1)).mean()
             elif args.uncertain_loss2 == "ce":
                 prior = F.softmax(prior_logits, dim=1)[: , mask]
