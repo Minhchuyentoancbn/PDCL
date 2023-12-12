@@ -538,7 +538,7 @@ def gaussian_train(model: torch.nn.Module, args, device, class_mask=None, task_i
             with torch.no_grad():
                 prior_output = model.forward_new_head(inp, *prior_head)
 
-            prior_logits = prior_output['logits']
+            prior_logits = prior_output['logits'] / args.temp
             if args.train_mask and class_mask is not None:
                 prior_logits = prior_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
@@ -659,7 +659,7 @@ def train_task_adaptive(model: torch.nn.Module, args, device, class_mask=None, t
                 with torch.no_grad():
                     prior_output = model.forward_new_head(inp, *prior_head)
                 
-                prior_logits = prior_output['logits']
+                prior_logits = prior_output['logits'] / args.temp
                 if args.train_mask and class_mask is not None:
                     prior_logits = prior_logits.index_fill(dim=1, index=not_old_mask, value=float('-inf'))
                     prior_logits = prior_logits[:, mask]
