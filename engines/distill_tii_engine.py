@@ -47,17 +47,16 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
         if task_id > 0:
             old_head = model.get_head()
 
-        if task_id == 0:
-            for epoch in range(args.epochs):
-                # Train model
-                train_stats = train_one_epoch(model=model, criterion=criterion,
-                                            data_loader=data_loader[task_id]['train'], optimizer=optimizer,
-                                            device=device, epoch=epoch, max_norm=args.clip_grad,
-                                            set_training_mode=True, task_id=task_id, class_mask=class_mask, args=args,
-                                            )
+        for epoch in range(args.epochs):
+            # Train model
+            train_stats = train_one_epoch(model=model, criterion=criterion,
+                                        data_loader=data_loader[task_id]['train'], optimizer=optimizer,
+                                        device=device, epoch=epoch, max_norm=args.clip_grad,
+                                        set_training_mode=True, task_id=task_id, class_mask=class_mask, args=args,
+                                        )
 
-                if lr_scheduler:
-                    lr_scheduler.step(epoch)
+            if lr_scheduler:
+                lr_scheduler.step(epoch)
 
         print('-' * 20)
         print(f'Evaluate task {task_id + 1} before CA')
@@ -101,7 +100,7 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
             state_dict = {
                 'model': model_without_ddp.state_dict(),
                 'optimizer': optimizer.state_dict(),
-                # 'epoch': epoch,
+                'epoch': epoch,
                 'args': args,
             }
             if args.sched is not None and args.sched != 'constant':
@@ -109,15 +108,15 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
 
             utils.save_on_master(state_dict, checkpoint_path)
 
-        # log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
-        #              **{f'test_{k}': v for k, v in test_stats.items()},
-        #              'epoch': epoch, }
+        log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
+                     **{f'test_{k}': v for k, v in test_stats.items()},
+                     'epoch': epoch, }
 
-        # if args.output_dir and utils.is_main_process():
-        #     with open(os.path.join(args.output_dir,
-        #                            '{}_stats.txt'.format(datetime.datetime.now().strftime('log_%Y_%m_%d_%H_%M'))),
-        #               'a') as f:
-        #         f.write(json.dumps(log_stats) + '\n')
+        if args.output_dir and utils.is_main_process():
+            with open(os.path.join(args.output_dir,
+                                   '{}_stats.txt'.format(datetime.datetime.now().strftime('log_%Y_%m_%d_%H_%M'))),
+                      'a') as f:
+                f.write(json.dumps(log_stats) + '\n')
 
 
 @torch.no_grad()
