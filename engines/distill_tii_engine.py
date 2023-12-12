@@ -86,27 +86,31 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
             print('-' * 20)
             if args.uncertain:
                 print('Evaluate task {} before uncertain training'.format(task_id + 1))
-                test_stats_uncertainty = evaluate_till_now(model=model, data_loader=data_loader,
-                                                            device=device,
-                                                            task_id=task_id, class_mask=class_mask,
-                                                            target_task_map=target_task_map,
-                                                            acc_matrix=uncertainty_acc_matrix, args=args)
+                evaluate_till_now(model=model, data_loader=data_loader,
+                                device=device,
+                                task_id=task_id, class_mask=class_mask,
+                                target_task_map=target_task_map,
+                                acc_matrix=uncertainty_acc_matrix, args=args)
                 print('-' * 20)
-                print("Uncertain training")
-                train_task_adaptive2(model, args, device, class_mask, task_id, data_loader[task_id]['train'])
-                print('-' * 20)
-                print('Evaluate task {} after uncertain training'.format(task_id + 1))
-                task_gaussian_acc_matrix = evaluate_till_now(model=model, data_loader=data_loader,
-                                                            device=device,
-                                                            task_id=task_id, class_mask=class_mask,
-                                                            target_task_map=target_task_map,
-                                                            acc_matrix=task_gaussian_acc_matrix, args=args)
+                
+                if args.adapt_prior:
+                    print("Adapt new prior")
+                    train_adapt_prior(model, args, device, class_mask, task_id, data_loader[task_id]['train'])
+                    print('-' * 20)
+                    print('Evaluate task {} after adapt prior'.format(task_id + 1))
+                    evaluate_till_now(model=model, data_loader=data_loader,
+                                    device=device,
+                                    task_id=task_id, class_mask=class_mask,
+                                    target_task_map=target_task_map,
+                                    acc_matrix=task_gaussian_acc_matrix, args=args)
+                    print('-' * 20)
+
                 print("Gaussian training")
                 gaussian_train(model, args, device, class_mask, task_id)
 
         # Evaluate model
         print('-' * 20)
-        print(f'Evaluate task {task_id + 1} after CA')
+        print(f'Evaluate task {task_id + 1} final')
         test_stats = evaluate_till_now(model=model, data_loader=data_loader,
                                        device=device,
                                        task_id=task_id, class_mask=class_mask, target_task_map=target_task_map,
@@ -504,6 +508,10 @@ def gaussian_train(model: torch.nn.Module, args, device, class_mask=None, task_i
 
     # TODO: efficiency may be improved by encapsulating sampled data into Datasets class and using distributed sampler.
     for epoch in range(run_epochs):
+        if args.temp_anneal and run_epochs > 1:
+            temp = args.temp - ((args.temp - 0.1) * epoch / (run_epochs - 1))
+        else:
+            temp = args.temp
         
         if args.reset_prior and epoch % (args.reset_prior_interval + 1) == 0:
             prior_head = model.get_head()
@@ -538,7 +546,7 @@ def gaussian_train(model: torch.nn.Module, args, device, class_mask=None, task_i
             with torch.no_grad():
                 prior_output = model.forward_new_head(inp, *prior_head)
 
-            prior_logits = prior_output['logits'] / args.temp
+            prior_logits = prior_output['logits'] / temp
             if args.train_mask and class_mask is not None:
                 prior_logits = prior_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
@@ -604,7 +612,11 @@ def train_task_adaptive(model: torch.nn.Module, args, device, class_mask=None, t
 
     # TODO: efficiency may be improved by encapsulating sampled data into Datasets class and using distributed sampler.
     for epoch in range(run_epochs):
-            
+        if args.temp_anneal and run_epochs > 1:
+            temp = args.temp - ((args.temp - 0.1) * epoch / (run_epochs - 1))
+        else:
+            temp = args.temp
+
         metric_logger = utils.MetricLogger(delimiter="  ")
         metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
         metric_logger.add_meter('Loss', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
@@ -659,7 +671,7 @@ def train_task_adaptive(model: torch.nn.Module, args, device, class_mask=None, t
                 with torch.no_grad():
                     prior_output = model.forward_new_head(inp, *prior_head)
                 
-                prior_logits = prior_output['logits'] / args.temp
+                prior_logits = prior_output['logits'] / temp
                 if args.train_mask and class_mask is not None:
                     prior_logits = prior_logits.index_fill(dim=1, index=not_old_mask, value=float('-inf'))
                     prior_logits = prior_logits[:, mask]
@@ -677,18 +689,11 @@ def train_task_adaptive(model: torch.nn.Module, args, device, class_mask=None, t
                     loss += (-F.log_softmax(sampled_logits[:, mask], dim=1) * prior).sum(1).sum()
                 elif args.uncertain_loss1 == "qr":
                     log_q = F.log_softmax(sampled_logits, dim=1)[:, mask]
-                    log_prior = prior.clamp(1e-6).log()
+                    log_prior = prior.clamp(1e-8).log()
                     log_r = (F.log_softmax(log_q, dim=0) + log_prior)
                     log_r = F.log_softmax(log_r, dim=1)
 
                     loss += ((F.softmax(sampled_logits, dim=1)[:, mask] * log_q).sum(dim=1) - (F.softmax(sampled_logits, dim=1)[:, mask] * log_r).sum(dim=1)).sum()
-                elif args.uncertain_loss1 == "rq":
-                    log_q = F.log_softmax(sampled_logits, dim=1)[:, mask]
-                    log_prior = prior.clamp(1e-6).log()
-                    log_r = (F.log_softmax(log_q, dim=0) + log_prior)
-                    log_r = F.log_softmax(log_r, dim=1)
-
-                    loss += ((log_r * log_r.exp()).sum(1) - (log_q * log_r.exp()).sum(1)).sum()
 
                 num_samples += inp.size(0)
 
@@ -717,7 +722,7 @@ def train_task_adaptive(model: torch.nn.Module, args, device, class_mask=None, t
 
 
 
-def train_task_adaptive2(model: torch.nn.Module, args, device, class_mask=None, task_id=-1, data_loader=None):
+def train_adapt_prior(model: torch.nn.Module, args, device, class_mask=None, task_id=-1, data_loader=None):
     model.train()
     prior_head = model.get_head()
 
@@ -735,6 +740,11 @@ def train_task_adaptive2(model: torch.nn.Module, args, device, class_mask=None, 
 
     # TODO: efficiency may be improved by encapsulating sampled data into Datasets class and using distributed sampler.
     for epoch in range(run_epochs):
+        if args.temp_anneal and run_epochs > 1:
+            temp = args.temp - ((args.temp - 0.1) * epoch / (run_epochs - 1))
+        else:
+            temp = args.temp
+
         if args.reset_prior and epoch % (args.reset_prior_interval + 1) == 0:
             prior_head = model.get_head()
             
@@ -787,7 +797,7 @@ def train_task_adaptive2(model: torch.nn.Module, args, device, class_mask=None, 
                 with torch.no_grad():
                     prior_output = model.forward_new_head(inp, *prior_head)
                 
-                prior_logits = prior_output['logits']
+                prior_logits = prior_output['logits'] / temp
                 if args.train_mask and class_mask is not None:
                     prior_logits = prior_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
                     prior_logits = prior_logits[:, mask]
@@ -805,18 +815,11 @@ def train_task_adaptive2(model: torch.nn.Module, args, device, class_mask=None, 
                     loss += (-F.log_softmax(sampled_logits[:, mask], dim=1) * prior).sum(1).sum()
                 elif args.uncertain_loss1 == "qr":
                     log_q = F.log_softmax(sampled_logits, dim=1)[:, mask]
-                    log_prior = prior.clamp(1e-6).log()
+                    log_prior = prior.clamp(1e-8).log()
                     log_r = (F.log_softmax(log_q, dim=0) + log_prior)
                     log_r = F.log_softmax(log_r, dim=1)
 
                     loss += ((F.softmax(sampled_logits, dim=1)[:, mask] * log_q).sum(dim=1) - (F.softmax(sampled_logits, dim=1)[:, mask] * log_r).sum(dim=1)).sum()
-                elif args.uncertain_loss1 == "rq":
-                    log_q = F.log_softmax(sampled_logits, dim=1)[:, mask]
-                    log_prior = prior.clamp(1e-6).log()
-                    log_r = (F.log_softmax(log_q, dim=0) + log_prior)
-                    log_r = F.log_softmax(log_r, dim=1)
-
-                    loss += ((log_r * log_r.exp()).sum(1) - (log_q * log_r.exp()).sum(1)).sum()
 
                 num_samples += inp.size(0)
 
