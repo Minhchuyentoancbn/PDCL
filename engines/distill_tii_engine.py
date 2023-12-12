@@ -777,16 +777,11 @@ def train_task_adaptive2(model: torch.nn.Module, args, device, class_mask=None, 
 
                 if args.train_mask and class_mask is not None:
                     mask = []
-                    old_mask = []
                     for id in range(task_id+1):
                         mask.extend(class_mask[id])
-                        if id < task_id:
-                            old_mask.extend(class_mask[id])
                     # print(mask)
                     not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
                     not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
-                    not_old_mask = np.setdiff1d(np.arange(args.nb_classes), old_mask)
-                    not_old_mask = torch.tensor(not_old_mask, dtype=torch.int64).to(device)
                     sampled_logits = sampled_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
                 with torch.no_grad():
@@ -794,7 +789,7 @@ def train_task_adaptive2(model: torch.nn.Module, args, device, class_mask=None, 
                 
                 prior_logits = prior_output['logits']
                 if args.train_mask and class_mask is not None:
-                    prior_logits = prior_logits.index_fill(dim=1, index=not_old_mask, value=float('-inf'))
+                    prior_logits = prior_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
                     prior_logits = prior_logits[:, mask]
 
                 if args.rejection:
