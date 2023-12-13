@@ -508,10 +508,7 @@ def gaussian_train(model: torch.nn.Module, args, device, class_mask=None, task_i
 
     # TODO: efficiency may be improved by encapsulating sampled data into Datasets class and using distributed sampler.
     for epoch in range(run_epochs):
-        if args.temp_anneal and run_epochs > 1:
-            temp = args.temp - ((args.temp - 0.1) * epoch / (run_epochs - 1))
-        else:
-            temp = args.temp
+        temp = args.temp
         
         if args.reset_prior and epoch % (args.reset_prior_interval + 1) == 0:
             prior_head = model.get_head()
@@ -738,10 +735,7 @@ def train_adapt_prior(model: torch.nn.Module, args, device, class_mask=None, tas
 
     # TODO: efficiency may be improved by encapsulating sampled data into Datasets class and using distributed sampler.
     for epoch in range(run_epochs):
-        if args.temp_anneal and run_epochs > 1:
-            temp = args.temp - ((args.temp - 0.1) * epoch / (run_epochs - 1))
-        else:
-            temp = args.temp
+        temp = args.temp
 
         if args.reset_prior and epoch % (args.reset_prior_interval + 1) == 0:
             prior_head = model.get_head()
