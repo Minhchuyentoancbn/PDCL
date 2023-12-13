@@ -165,6 +165,7 @@ def get_args_parser(subparsers):
     subparsers.add_argument('--reset_prior_interval', default=0, type=int)
 
     subparsers.add_argument('--temp', default=1.0, type=float)
+    subparsers.add_argument('--min_temp', default=0.1, type=float)
     subparsers.add_argument('--temp_anneal', action='store_true')
 
     subparsers.add_argument('--adapt_prior', action='store_true')
