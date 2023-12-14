@@ -547,7 +547,8 @@ def gaussian_train(model: torch.nn.Module, args, device, class_mask=None, task_i
                 if args.train_mask and class_mask is not None:
                     prior_logits = prior_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-                loss = (-F.log_softmax(logits, dim=1)[:, mask] * F.softmax(prior_logits, dim=1)[:, mask]).sum(dim=1).mean()
+                prior = F.softmax(prior_logits, dim=1)[:, mask]
+                loss = (-F.log_softmax(logits, dim=1)[:, mask] * prior).sum(dim=1).mean()
             else:
                 loss = F.cross_entropy(logits, tgt, reduction='mean')
 
