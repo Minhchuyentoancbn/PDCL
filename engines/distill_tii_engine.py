@@ -674,9 +674,10 @@ def train_task_adaptive(model: torch.nn.Module, args, device, class_mask=None, t
                     prior_logits = prior_logits.index_fill(dim=1, index=not_old_mask, value=float('-inf'))
                 
                 prior = F.softmax(prior_logits, dim=1)
-                sampled_pseudo_label = prior.argmax(dim=1)
+                # sampled_pseudo_label = prior.argmax(dim=1)
 
-                loss += F.cross_entropy(sampled_logits, sampled_pseudo_label, reduction='sum')
+                # loss += F.cross_entropy(sampled_logits, sampled_pseudo_label, reduction='sum')
+                loss += F.cross_entropy(sampled_logits, tgt, reduction='sum')
 
                 num_samples += inp.size(0)
 
