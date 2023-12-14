@@ -860,7 +860,7 @@ def train_adapt_prior(model: torch.nn.Module, args, device, class_mask=None, tas
 
 
 def compute_log_likelihood(x, task_id, class_mask, device, args, include_current_task=True):
-    if args.ca_storage_efficient_method == "covaraicne":
+    if args.ca_storage_efficient_method == "covariance":
         log_likelihood = torch.zeros((x.shape[0], args.nb_classes)).to(device)
         if include_current_task:
             max_task = task_id + 1
