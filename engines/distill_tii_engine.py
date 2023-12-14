@@ -697,6 +697,7 @@ def train_task_adaptive(model: torch.nn.Module, args, device, class_mask=None, t
 
                     log_q = F.log_softmax(sampled_logits[:, mask], dim=1)
                     log_prior = prior.clamp(1e-8).log()
+                    print("Log prior: ", log_prior)
                     log_r = (log_prior + compute_log_likelihood(inp, task_id, class_mask, device, args))
                     log_r = F.log_softmax(log_r, dim=1)
                     loss += ((F.softmax(sampled_logits[:, mask], dim=1) * log_q).sum(dim=1) - (F.softmax(sampled_logits[:, mask], dim=1) * log_r).sum(dim=1)).sum()
@@ -877,7 +878,8 @@ def compute_log_likelihood(x, task_id, class_mask, device, args, include_current
                 cov = cls_cov[c_id].to(device)
                 m = MultivariateNormal(mean.float(), cov.float())
                 log_likelihood[:, c_id] = m.log_prob(x.float()) + (d / 2) * torch.log(torch.tensor(2 * np.pi)).to(device)
-
+        print("Log likelihood:")
+        print(log_likelihood[:, mask])
         return log_likelihood[:, mask]
     else:
         raise NotImplementedError
