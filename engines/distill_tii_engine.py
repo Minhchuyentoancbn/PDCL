@@ -85,13 +85,13 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
             train_task_adaptive(model, args, device, class_mask, task_id, data_loader[task_id]['train'])
             print('-' * 20)
 
-            print('Evaluate task {} before uncertain training'.format(task_id + 1))
-            evaluate_till_now(model=model, data_loader=data_loader,
-                            device=device,
-                            task_id=task_id, class_mask=class_mask,
-                            target_task_map=target_task_map,
-                            acc_matrix=uncertainty_acc_matrix, args=args)
-            print('-' * 20)
+            # print('Evaluate task {} before uncertain training'.format(task_id + 1))
+            # evaluate_till_now(model=model, data_loader=data_loader,
+            #                 device=device,
+            #                 task_id=task_id, class_mask=class_mask,
+            #                 target_task_map=target_task_map,
+            #                 acc_matrix=uncertainty_acc_matrix, args=args)
+            # print('-' * 20)
             
             # if args.adapt_prior:
             #     print("Adapt new prior")
