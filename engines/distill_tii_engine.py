@@ -492,6 +492,9 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
 
 
 def gaussian_train(model: torch.nn.Module, args, device, class_mask=None, task_id=-1):
+
+    prior_head = model.get_head()
+
     model.train()
     run_epochs = args.uncertain_epochs
     param_list = [p for p in model.parameters() if p.requires_grad]
@@ -506,9 +509,10 @@ def gaussian_train(model: torch.nn.Module, args, device, class_mask=None, task_i
 
     # TODO: efficiency may be improved by encapsulating sampled data into Datasets class and using distributed sampler.
     for epoch in range(run_epochs):
+        temp = args.temp
         
-        # if args.reset_prior and epoch % (args.reset_prior_interval + 1) == 0:
-        #     prior_head = model.get_head()
+        if args.reset_prior and epoch % (args.reset_prior_interval + 1) == 0:
+            prior_head = model.get_head()
 
         metric_logger = utils.MetricLogger(delimiter="  ")
         metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
@@ -536,7 +540,16 @@ def gaussian_train(model: torch.nn.Module, args, device, class_mask=None, task_i
                 not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
                 logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-            loss = F.cross_entropy(logits, tgt, reduction='mean')
+            if args.adapt_prior:
+                prior_outputs = model.forward_new_head(inp, *prior_head)
+                prior_logits = prior_outputs['logits']
+                prior_logits = prior_logits / temp
+                if args.train_mask and class_mask is not None:
+                    prior_logits = prior_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+
+                loss = (-F.log_softmax(logits, dim=1)[:, mask] * F.softmax(prior_logits, dim=1)[:, mask]).sum(dim=1).mean()
+            else:
+                loss = F.cross_entropy(logits, tgt, reduction='mean')
 
             acc1, acc5 = accuracy(logits, tgt, topk=(1, 5))
 
