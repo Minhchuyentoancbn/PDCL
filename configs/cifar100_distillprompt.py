@@ -160,7 +160,7 @@ def get_args_parser(subparsers):
     subparsers.add_argument('--uncertain_loss1', default='ce', type=str)
     subparsers.add_argument('--uncertain_loss2', default='ce', type=str)
 
-    subparsers.add_argument('--rejection', action='store_true')
+    # subparsers.add_argument('--rejection', action='store_true')
     subparsers.add_argument('--reset_prior', action='store_true')
     subparsers.add_argument('--reset_prior_interval', default=0, type=int)
 

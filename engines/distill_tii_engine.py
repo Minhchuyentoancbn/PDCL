@@ -508,7 +508,10 @@ def gaussian_train(model: torch.nn.Module, args, device, class_mask=None, task_i
 
     # TODO: efficiency may be improved by encapsulating sampled data into Datasets class and using distributed sampler.
     for epoch in range(run_epochs):
-        temp = args.min_temp
+        if args.temp_anneal and run_epochs > 1:
+            temp = args.min_temp + (args.temp - args.min_temp) * (epoch / (run_epochs - 1))
+        else:
+            temp = args.temp
         
         if args.reset_prior and epoch % (args.reset_prior_interval + 1) == 0:
             prior_head = model.get_head()
@@ -547,17 +550,19 @@ def gaussian_train(model: torch.nn.Module, args, device, class_mask=None, task_i
             if args.train_mask and class_mask is not None:
                 prior_logits = prior_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-            if args.rejection:
-                prior_tgt = prior_logits.argmax(dim=1)
-                logits = logits[prior_tgt == tgt]
-                prior_logits = prior_logits[prior_tgt == tgt]   
-                inp = inp[prior_tgt == tgt]
-                tgt = tgt[prior_tgt == tgt]   
+            # if args.rejection:
+            #     prior_tgt = prior_logits.argmax(dim=1)
+            #     logits = logits[prior_tgt == tgt]
+            #     prior_logits = prior_logits[prior_tgt == tgt]   
+            #     inp = inp[prior_tgt == tgt]
+            #     tgt = tgt[prior_tgt == tgt]   
             
             log_q = F.log_softmax(logits, dim=1)
             
             log_prior = F.log_softmax(prior_logits, dim=1)
-            log_r = (F.log_softmax(log_q[:, mask], dim=0) + log_prior[:, mask])
+            # log_r = (F.log_softmax(log_q[:, mask], dim=0) + log_prior[:, mask])
+            # log_r = F.log_softmax(log_r, dim=1)
+            log_r = (log_prior[:, mask] + compute_log_likelihood(inp, task_id, class_mask, device, args))
             log_r = F.log_softmax(log_r, dim=1)
 
             if args.uncertain_loss2 == "qr":
@@ -608,9 +613,9 @@ def train_task_adaptive(model: torch.nn.Module, args, device, class_mask=None, t
     # TODO: efficiency may be improved by encapsulating sampled data into Datasets class and using distributed sampler.
     for epoch in range(run_epochs):
         if args.temp_anneal and run_epochs > 1:
-            temp = args.temp - ((args.temp - args.min_temp) * epoch / (run_epochs - 1))
+            temp = args.min_temp + (args.temp - args.min_temp) * (epoch / (run_epochs - 1))
         else:
-            temp = args.min_temp
+            temp = args.temp
 
         metric_logger = utils.MetricLogger(delimiter="  ")
         metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
@@ -671,24 +676,30 @@ def train_task_adaptive(model: torch.nn.Module, args, device, class_mask=None, t
                     prior_logits = prior_logits.index_fill(dim=1, index=not_old_mask, value=float('-inf'))
                     prior_logits = prior_logits[:, mask]
 
-                if args.rejection:
-                    prior_tgt = prior_logits.argmax(dim=1)
-                    sampled_logits = sampled_logits[prior_tgt == tgt]
-                    prior_logits = prior_logits[prior_tgt == tgt]
-                    inp = inp[prior_tgt == tgt]
-                    tgt = tgt[prior_tgt == tgt]      
+                # if args.rejection:
+                #     prior_tgt = prior_logits.argmax(dim=1)
+                #     sampled_logits = sampled_logits[prior_tgt == tgt]
+                #     prior_logits = prior_logits[prior_tgt == tgt]
+                #     inp = inp[prior_tgt == tgt]
+                #     tgt = tgt[prior_tgt == tgt]      
                 
                 prior = F.softmax(prior_logits, dim=1)
 
                 if args.uncertain_loss1 == "ce":
                     loss += (-F.log_softmax(sampled_logits[:, mask], dim=1) * prior).sum(1).sum()
                 elif args.uncertain_loss1 == "qr":
-                    log_q = F.log_softmax(sampled_logits, dim=1)[:, mask]
-                    log_prior = prior.clamp(1e-8).log()
-                    log_r = (F.log_softmax(log_q, dim=0) + log_prior)
-                    log_r = F.log_softmax(log_r, dim=1)
+                    # log_q = F.log_softmax(sampled_logits, dim=1)[:, mask]
+                    # log_prior = prior.clamp(1e-8).log()
+                    # log_r = (F.log_softmax(log_q, dim=0) + log_prior)
+                    # log_r = F.log_softmax(log_r, dim=1)
 
-                    loss += ((F.softmax(sampled_logits, dim=1)[:, mask] * log_q).sum(dim=1) - (F.softmax(sampled_logits, dim=1)[:, mask] * log_r).sum(dim=1)).sum()
+                    # loss += ((F.softmax(sampled_logits, dim=1)[:, mask] * log_q).sum(dim=1) - (F.softmax(sampled_logits, dim=1)[:, mask] * log_r).sum(dim=1)).sum()
+
+                    log_q = F.log_softmax(sampled_logits[:, mask], dim=1)
+                    log_prior = prior.clamp(1e-8).log()
+                    log_r = (log_prior + compute_log_likelihood(inp, task_id, class_mask, device, args))
+                    log_r = F.log_softmax(log_r, dim=1)
+                    loss += ((F.softmax(sampled_logits[:, mask], dim=1) * log_q).sum(dim=1) - (F.softmax(sampled_logits[:, mask], dim=1) * log_r).sum(dim=1)).sum()
 
                 num_samples += inp.size(0)
 
@@ -735,7 +746,10 @@ def train_adapt_prior(model: torch.nn.Module, args, device, class_mask=None, tas
 
     # TODO: efficiency may be improved by encapsulating sampled data into Datasets class and using distributed sampler.
     for epoch in range(run_epochs):
-        temp = args.min_temp
+        if args.temp_anneal and run_epochs > 1:
+            temp = args.min_temp + (args.temp - args.min_temp) * (epoch / (run_epochs - 1))
+        else:
+            temp = args.temp
 
         if args.reset_prior and epoch % (args.reset_prior_interval + 1) == 0:
             prior_head = model.get_head()
@@ -794,23 +808,29 @@ def train_adapt_prior(model: torch.nn.Module, args, device, class_mask=None, tas
                     prior_logits = prior_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
                     prior_logits = prior_logits[:, mask]
 
-                if args.rejection:
-                    prior_tgt = prior_logits.argmax(dim=1)
-                    sampled_logits = sampled_logits[prior_tgt == tgt]
-                    prior_logits = prior_logits[prior_tgt == tgt]
-                    inp = inp[prior_tgt == tgt]
-                    tgt = tgt[prior_tgt == tgt]      
+                # if args.rejection:
+                #     prior_tgt = prior_logits.argmax(dim=1)
+                #     sampled_logits = sampled_logits[prior_tgt == tgt]
+                #     prior_logits = prior_logits[prior_tgt == tgt]
+                #     inp = inp[prior_tgt == tgt]
+                #     tgt = tgt[prior_tgt == tgt]      
                 
                 prior = F.softmax(prior_logits, dim=1)
 
                 if args.uncertain_loss1 == "ce":
                     loss += (-F.log_softmax(sampled_logits[:, mask], dim=1) * prior).sum(1).sum()
                 elif args.uncertain_loss1 == "qr":
+                    # log_q = F.log_softmax(sampled_logits, dim=1)[:, mask]
+                    # log_prior = prior.clamp(1e-8).log()
+                    # log_r = (F.log_softmax(log_q, dim=0) + log_prior)
+                    # log_r = F.log_softmax(log_r, dim=1)
+
+                    # loss += ((F.softmax(sampled_logits, dim=1)[:, mask] * log_q).sum(dim=1) - (F.softmax(sampled_logits, dim=1)[:, mask] * log_r).sum(dim=1)).sum()
+                    
                     log_q = F.log_softmax(sampled_logits, dim=1)[:, mask]
                     log_prior = prior.clamp(1e-8).log()
-                    log_r = (F.log_softmax(log_q, dim=0) + log_prior)
+                    log_r = (log_prior + compute_log_likelihood(inp, task_id, class_mask, device, args))
                     log_r = F.log_softmax(log_r, dim=1)
-
                     loss += ((F.softmax(sampled_logits, dim=1)[:, mask] * log_q).sum(dim=1) - (F.softmax(sampled_logits, dim=1)[:, mask] * log_r).sum(dim=1)).sum()
 
                 num_samples += inp.size(0)
@@ -837,3 +857,27 @@ def train_adapt_prior(model: torch.nn.Module, args, device, class_mask=None, tas
         metric_logger.synchronize_between_processes()
         print("Averaged stats:", metric_logger)
         scheduler.step()
+
+
+def compute_log_likelihood(x, task_id, class_mask, device, args, include_current_task=True):
+    if args.ca_storage_efficient_method == "covaraicne":
+        log_likelihood = torch.zeros((x.shape[0], args.nb_classes)).to(device)
+        if include_current_task:
+            max_task = task_id + 1
+        else:
+            max_task = task_id
+
+        d = x.shape[1]
+        mask = []
+
+        for i in range(max_task):
+            mask.extend(class_mask[i])
+            for c_id in class_mask[i]:
+                mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
+                cov = cls_cov[c_id].to(device)
+                m = MultivariateNormal(mean.float(), cov.float())
+                log_likelihood[:, c_id] = m.log_prob(x.float()) + (d / 2) * torch.log(torch.tensor(2 * np.pi)).to(device)
+
+        return log_likelihood[:, mask]
+    else:
+        raise NotImplementedError
