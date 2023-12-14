@@ -551,9 +551,9 @@ def gaussian_train(model: torch.nn.Module, args, device, class_mask=None, task_i
                 if args.train_mask and class_mask is not None:
                     prior_logits = prior_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-                prior = F.softmax(prior_logits, dim=1)[:, mask]
+                prior = F.softmax(prior_logits, dim=1)
                 # loss = (-F.log_softmax(logits, dim=1)[:, mask] * prior).sum(dim=1).mean()
-                loss = (-F.log_softmax(logits, dim=1)[:, mask] * prior)[torch.arange(inp.shape[0]).to(device), tgt].mean()
+                loss = (-F.log_softmax(logits, dim=1)* prior)[torch.arange(inp.shape[0]).to(device), tgt].mean()
             else:
                 loss = F.cross_entropy(logits, tgt, reduction='mean')
 
@@ -582,6 +582,8 @@ def gaussian_train(model: torch.nn.Module, args, device, class_mask=None, task_i
 
 def train_task_adaptive(model: torch.nn.Module, args, device, class_mask=None, task_id=-1, data_loader=None):
     model.train()
+
+    prior_head = old_head
 
     run_epochs = args.crct_epochs
     param_list = [p for p in model.parameters() if p.requires_grad]
@@ -641,14 +643,32 @@ def train_task_adaptive(model: torch.nn.Module, args, device, class_mask=None, t
 
                 if args.train_mask and class_mask is not None:
                     mask = []
+                    old_mask = []
                     for id in range(task_id+1):
                         mask.extend(class_mask[id])
+                        if id < task_id:
+                            old_mask.extend(class_mask[id])
                     # print(mask)
                     not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
                     not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+                    old_not_mask = np.setdiff1d(np.arange(args.nb_classes), old_mask)
+                    old_not_mask = torch.tensor(old_not_mask, dtype=torch.int64).to(device)
                     sampled_logits = sampled_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
+                # with torch.no_grad():
+                #     prior_output = model.forward_new_head(inp, *prior_head)
+                
+                # prior_logits = prior_output['logits']
+                
+                # if args.train_mask and class_mask is not None:
+                #     prior_logits = prior_logits.index_fill(dim=1, index=old_not_mask, value=float('-inf'))
+                #     prior_logits = prior_logits[:, mask]
+                
+                # prior = F.softmax(prior_logits, dim=1)
+
                 loss += F.cross_entropy(sampled_logits, tgt, reduction='sum')
+
+                # loss += (-F.log_softmax(sampled_logits[:, mask]) * prior)[]
 
                 num_samples += inp.size(0)
 
