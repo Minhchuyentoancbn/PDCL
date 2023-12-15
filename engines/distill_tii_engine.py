@@ -602,7 +602,7 @@ def train_task_adaptive(model: torch.nn.Module, args, device, class_mask=None, t
         # if args.temp_anneal and run_epochs > 1:
         #     temp = args.min_temp + (args.temp - args.min_temp) * (epoch / (run_epochs - 1))
         # else:
-        #     temp = args.temp
+        temp = args.temp_adaptive
 
         metric_logger = utils.MetricLogger(delimiter="  ")
         metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
@@ -655,18 +655,15 @@ def train_task_adaptive(model: torch.nn.Module, args, device, class_mask=None, t
                     old_not_mask = torch.tensor(old_not_mask, dtype=torch.int64).to(device)
                     sampled_logits = sampled_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-                # with torch.no_grad():
-                #     prior_output = model.forward_new_head(inp, *prior_head)
-                
-                # prior_logits = prior_output['logits']
-                
-                # if args.train_mask and class_mask is not None:
-                #     prior_logits = prior_logits.index_fill(dim=1, index=old_not_mask, value=float('-inf'))
-                #     prior_logits = prior_logits[:, mask]
-                
-                # prior = F.softmax(prior_logits, dim=1)
+                with torch.no_grad():
+                    prior_output = model.forward_new_head(inp, *prior_head)    
 
-                loss += F.cross_entropy(sampled_logits, tgt, reduction='sum')
+                prior_logits = prior_output['logits'] / temp
+                if args.train_mask and class_mask is not None:
+                    prior_logits = prior_logits.index_fill(dim=1, index=old_not_mask, value=float('-inf'))
+                prior = F.softmax(prior_logits, dim=1)
+
+                loss += (F.cross_entropy(sampled_logits, tgt, reduction='none') * prior[torch.arange(inp.shape[0]).to(device), tgt]).sum()
 
                 # loss += (-F.log_softmax(sampled_logits[:, mask]) * prior)[]
 
