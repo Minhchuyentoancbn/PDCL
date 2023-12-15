@@ -599,10 +599,7 @@ def train_task_adaptive(model: torch.nn.Module, args, device, class_mask=None, t
 
     # TODO: efficiency may be improved by encapsulating sampled data into Datasets class and using distributed sampler.
     for epoch in range(run_epochs):
-        if args.temp_anneal and run_epochs > 1:
-            temp = args.min_temp + (args.temp - args.min_temp) * (epoch / (run_epochs - 1))
-        else:
-            temp = args.tem
+        temp = args.temp_adaptive
 
         metric_logger = utils.MetricLogger(delimiter="  ")
         metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
@@ -663,10 +660,8 @@ def train_task_adaptive(model: torch.nn.Module, args, device, class_mask=None, t
                     prior_logits = prior_logits.index_fill(dim=1, index=old_not_mask, value=float('-inf'))
                 prior = F.softmax(prior_logits, dim=1)
 
-                loss += (F.cross_entropy(sampled_logits, tgt, reduction='none') * prior[torch.arange(inp.shape[0]).to(device), tgt]).sum()
-
-                # loss += (-F.log_softmax(sampled_logits[:, mask]) * prior)[]
-
+                loss += F.cross_entropy(sampled_logits, tgt, reduction='sum')
+                
                 num_samples += inp.size(0)
 
             loss = loss / num_samples
