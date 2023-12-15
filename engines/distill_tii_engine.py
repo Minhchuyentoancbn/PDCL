@@ -664,7 +664,7 @@ def train_task_adaptive(model: torch.nn.Module, args, device, class_mask=None, t
 
                 loss += F.cross_entropy(sampled_logits, tgt, reduction='sum')
 
-                kl_loss += (-F.log_softmax(sampled_logits, dim=1)[:, old_mask] * prior[:, old_mask]).sum(dim=1).sum()
+                kl_loss += (-F.log_softmax(sampled_logits[:, old_mask], dim=1) * prior[:, old_mask]).sum(dim=1).sum()
                 
                 num_samples += inp.size(0)
                 num_kl_samples += inp.size(0)
