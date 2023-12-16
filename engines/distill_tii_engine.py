@@ -614,20 +614,34 @@ def train_task_adaptive(model: torch.nn.Module, args, device, class_mask=None, t
 
             output = model(input)
             logits = output['logits']
+            feats = output['features']
+
+            with torch.no_grad():
+                old_logits = model.forward_new_head(feats, *prior_head)['logits'] / temp
 
             # here is the trick to mask out classes of non-current tasks
             if args.train_mask and class_mask is not None:
                 mask = []
+                old_mask = []
                 for id in range(task_id+1):
                     mask.extend(class_mask[id])
+                    if id < task_id:
+                        old_mask.extend(class_mask[id])
                 not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
                 not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+                old_not_mask = np.setdiff1d(np.arange(args.nb_classes), old_mask)
+                old_not_mask = torch.tensor(old_not_mask, dtype=torch.int64).to(device)
                 logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+                old_logits = old_logits.index_fill(dim=1, index=old_not_mask, value=float('-inf'))
                 
             loss = F.cross_entropy(logits, target, reduction='sum')
-            kl_loss = 0
             num_samples = input.size(0)
-            num_kl_samples = 0
+            # kl_loss = 0
+            # num_kl_samples = 0
+            
+            old_prior = F.softmax(old_logits, dim=1)
+            kl_loss = (-F.log_softmax(logits[:, old_mask], dim=1) * old_prior[:, old_mask]).sum(dim=1).sum()
+            num_kl_samples = input.size(0)
 
             sampled_data, sampled_label = sample_data(task_id, class_mask, device, args, include_current_task=False, train=True)
             inputs = sampled_data
