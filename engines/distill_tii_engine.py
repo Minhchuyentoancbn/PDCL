@@ -515,8 +515,8 @@ def gaussian_train(model: torch.nn.Module, args, device, class_mask=None, task_i
         else:
             temp = args.temp
         
-        if args.reset_prior and epoch % (args.reset_prior_interval + 1) == 0:
-            prior_head = model.get_head()
+        # if args.reset_prior and epoch % (args.reset_prior_interval + 1) == 0:
+        #     prior_head = model.get_head()
 
         metric_logger = utils.MetricLogger(delimiter="  ")
         metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
@@ -552,8 +552,10 @@ def gaussian_train(model: torch.nn.Module, args, device, class_mask=None, task_i
                     prior_logits = prior_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
                 prior = F.softmax(prior_logits, dim=1)
-                # loss = (-F.log_softmax(logits, dim=1)[:, mask] * prior).sum(dim=1).mean()
-                loss = (-F.log_softmax(logits, dim=1)* prior)[torch.arange(inp.shape[0]).to(device), tgt].mean()
+
+                # loss = (-F.log_softmax(logits, dim=1) * prior)[torch.arange(inp.shape[0]).to(device), tgt].mean()
+                prior_entropy = -torch.sum(prior * torch.log(prior + 1e-8)[:, mask], dim=1) / np.log(len(mask))
+                loss = (F.cross_entropy(logits, tgt, reduction='none') * prior_entropy).mean()
             else:
                 loss = F.cross_entropy(logits, tgt, reduction='mean')
 
