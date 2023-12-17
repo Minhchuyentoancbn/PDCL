@@ -493,7 +493,8 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
 
 def gaussian_train(model: torch.nn.Module, args, device, class_mask=None, task_id=-1):
 
-    prior_head = model.get_head()
+    # prior_head = model.get_head()
+    prior_head = old_head
 
     model.train()
     run_epochs = args.uncertain_epochs
@@ -538,25 +539,41 @@ def gaussian_train(model: torch.nn.Module, args, device, class_mask=None, task_i
 
             if args.train_mask and class_mask is not None:
                 mask = []
+                old_mask = []
                 for id in range(task_id+1):
                     mask.extend(class_mask[id])
+                    if id < task_id:
+                        old_mask.extend(class_mask[id])
                 not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
                 not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+                old_not_mask = np.setdiff1d(np.arange(args.nb_classes), old_mask)
+                old_not_mask = torch.tensor(old_not_mask, dtype=torch.int64).to(device)
                 logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
             if args.adapt_prior:
+                # prior_outputs = model.forward_new_head(inp, *prior_head)
+                # prior_logits = prior_outputs['logits']
+                # prior_logits = prior_logits / temp
+                # if args.train_mask and class_mask is not None:
+                #     prior_logits = prior_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+
+                # prior = F.softmax(prior_logits, dim=1)
+
+                # # loss = (-F.log_softmax(logits, dim=1) * prior)[torch.arange(inp.shape[0]).to(device), tgt].mean()
+                # prior_entropy = -torch.sum((prior * torch.log(prior + 1e-8))[:, mask], dim=1) / np.log(len(mask))
+                # prior_entropy = torch.exp(-prior_entropy)
+                # loss = (F.cross_entropy(logits, tgt, reduction='none') * prior_entropy).mean()
+
+
                 prior_outputs = model.forward_new_head(inp, *prior_head)
                 prior_logits = prior_outputs['logits']
                 prior_logits = prior_logits / temp
                 if args.train_mask and class_mask is not None:
-                    prior_logits = prior_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
-
+                    prior_logits = prior_logits.index_fill(dim=1, index=old_not_mask, value=float('-inf'))
                 prior = F.softmax(prior_logits, dim=1)
 
-                # loss = (-F.log_softmax(logits, dim=1) * prior)[torch.arange(inp.shape[0]).to(device), tgt].mean()
-                prior_entropy = -torch.sum((prior * torch.log(prior + 1e-8))[:, mask], dim=1) / np.log(len(mask))
-                prior_entropy = torch.exp(-prior_entropy)
-                loss = (F.cross_entropy(logits, tgt, reduction='none') * prior_entropy).mean()
+                kl_loss = (-F.log_softmax(logits[:, old_mask], dim=1) * prior[:, old_mask]).sum(dim=1).mean()
+                loss = F.cross_entropy(logits, tgt, reduction='mean') + args.reg * kl_loss
             else:
                 loss = F.cross_entropy(logits, tgt, reduction='mean')
 
