@@ -154,16 +154,4 @@ def get_args_parser(subparsers):
     subparsers.add_argument('--print_freq', type=int, default=10, help='The frequency of printing')
 
     # Uncertainty training
-    subparsers.add_argument('--uncertain_epochs', default=30, type=int)
-    subparsers.add_argument('--uncertain_lr', default=0.005, type=float)
-
-    # subparsers.add_argument('--rejection', action='store_true')
-    subparsers.add_argument('--reset_prior', action='store_true')
-    subparsers.add_argument('--reset_prior_interval', default=0, type=int)
-
-    subparsers.add_argument('--temp', default=1.0, type=float)
-    subparsers.add_argument('--min_temp', default=0.1, type=float)
-    subparsers.add_argument('--temp_anneal', action='store_true')
-    subparsers.add_argument('--temp_adaptive', default=1.0, type=float)
-
-    subparsers.add_argument('--adapt_prior', action='store_true')
+    subparsers.add_argument('--pseudo_label', action='store_true')

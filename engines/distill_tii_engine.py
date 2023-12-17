@@ -295,7 +295,10 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
         for pos in range(0, inputs.size(0), args.batch_size):
             inp = inputs[pos:pos + args.batch_size]
             # tgt = targets[pos:pos + args.batch_size]
-            tgt = pseudo_label[pos:pos + args.batch_size]
+            if args.pseudo_label:
+                tgt = pseudo_label[pos:pos + args.batch_size]
+            else:
+                tgt = targets[pos:pos + args.batch_size]
             outputs = model(inp, fc_only=True)
             logits = outputs['logits']
 
