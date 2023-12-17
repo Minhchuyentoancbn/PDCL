@@ -288,7 +288,7 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
         inputs = inputs[sf_indexes]
         targets = targets[sf_indexes]
         pseudo_label = pseudo_label[sf_indexes]
-        sampled_mask = sampled_mask[sf_indexes]
+        # sampled_mask = sampled_mask[sf_indexes]
         #print(targets)
 
         for pos in range(0, inputs.size(0), args.batch_size):
@@ -296,8 +296,8 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
             tgt = targets[pos:pos + args.batch_size]
             if args.pseudo_label:
                 pseudo_tgt = pseudo_label[pos:pos + args.batch_size]
-                if args.soft_label:
-                    filter_mask = sampled_mask[pos:pos + args.batch_size]
+                # if args.soft_label:
+                #     filter_mask = sampled_mask[pos:pos + args.batch_size]
             outputs = model(inp, fc_only=True)
             logits = outputs['logits']
 
