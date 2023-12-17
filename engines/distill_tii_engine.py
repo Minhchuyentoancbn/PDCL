@@ -276,7 +276,8 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
     # TODO: efficiency may be improved by encapsulating sampled data into Datasets class and using distributed sampler.
     for epoch in range(run_epochs):
         if args.temp_anneal and run_epochs > 1:
-            temp = 0.1 + (args.temp - 0.1) * epoch / (run_epochs - 1)
+            # temp = 0.1 + (args.temp - 0.1) * epoch / (run_epochs - 1)
+            temp = args.temp - (args.temp - 0.1) * epoch / (run_epochs - 1)
         else:
             temp = args.temp
             
