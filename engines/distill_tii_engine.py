@@ -312,7 +312,6 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
             
             if args.pseudo_label:
                 if args.soft_label:
-                    logits = logits / args.temp
                     loss = -(torch.log_softmax(logits, dim=1)[:, mask] * pseudo_tgt[:, mask]).sum(dim=1).mean()
                 else:
                     loss = criterion(logits, pseudo_tgt)
@@ -535,7 +534,7 @@ def sample_data(task_id, class_mask, device, args, include_current_task=True, tr
                         sampled_logits = sampled_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
                     if args.soft_label:
-                        sampled_pseudo_label = F.softmax(sampled_logits / args.temp, dim=1)
+                        sampled_pseudo_label = F.softmax(sampled_logits, dim=1)
                         pseudo_label.append(sampled_pseudo_label)
                         cls_mask = torch.zeros((sampled_pseudo_label.shape[0], args.nb_classes)).to(device)
                         cls_mask[:, class_mask] = 1
