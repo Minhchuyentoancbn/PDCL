@@ -691,12 +691,16 @@ def train_task_adaptive(model: torch.nn.Module, args, device, class_mask=None, t
                 with torch.no_grad():
                     prior_output = model.forward_new_head(inp, *prior_head)    
 
-                prior_logits = prior_output['logits'] / temp
+                prior_logits = prior_output['logits']
                 if args.train_mask and class_mask is not None:
                     prior_logits = prior_logits.index_fill(dim=1, index=old_not_mask, value=float('-inf'))
                 prior = F.softmax(prior_logits, dim=1)
 
-                loss += F.cross_entropy(sampled_logits, tgt, reduction='sum')
+                prior_entr = F.softmax(prior_logits / temp, dim=1)
+                prior_entropy = -torch.sum((prior_entr * torch.log(prior_entr + 1e-8))[:, old_mask], dim=1) / np.log(len(old_mask))
+                loss += (F.cross_entropy(sampled_logits, tgt, reduction='none') * torch.exp(-prior_entropy)).sum()
+
+                # loss += F.cross_entropy(sampled_logits, tgt, reduction='sum')
 
                 kl_loss += (-F.log_softmax(sampled_logits[:, old_mask], dim=1) * prior[:, old_mask]).sum(dim=1).sum()
                 
