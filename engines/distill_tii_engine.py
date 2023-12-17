@@ -280,7 +280,7 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
         metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
         metric_logger.add_meter('Loss', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
 
-        sampled_data, sampled_label, pseudo_label = sample_data(task_id, class_mask, device, args, include_current_task=True, train=False, head=current_head, model=model)
+        sampled_data, sampled_label, pseudo_label, sampled_mask = sample_data(task_id, class_mask, device, args, include_current_task=True, train=False, head=current_head, model=model)
         inputs = sampled_data
         targets = sampled_label
 
@@ -288,6 +288,7 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
         inputs = inputs[sf_indexes]
         targets = targets[sf_indexes]
         pseudo_label = pseudo_label[sf_indexes]
+        sampled_mask = sampled_mask[sf_indexes]
         #print(targets)
 
         for pos in range(0, inputs.size(0), args.batch_size):
@@ -295,6 +296,8 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
             # tgt = targets[pos:pos + args.batch_size]
             if args.pseudo_label:
                 tgt = pseudo_label[pos:pos + args.batch_size]
+                if args.soft_label:
+                    filter_mask = sampled_mask[pos:pos + args.batch_size]
             else:
                 tgt = targets[pos:pos + args.batch_size]
             outputs = model(inp, fc_only=True)
@@ -308,8 +311,12 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
                 not_mask = np.setdiff1d(np.arange(args.nb_classes), mask)
                 not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
                 logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
-
-            loss = criterion(logits, tgt)
+            
+            if args.soft_label:
+                logits = logits / args.temp
+                loss = -torch.sum(torch.log_softmax(logits, dim=1) * tgt * filter_mask).mean()
+            else:
+                loss = criterion(logits, tgt)
 
             acc1, acc5 = accuracy(logits, tgt, topk=(1, 5))
 
@@ -474,6 +481,7 @@ def sample_data(task_id, class_mask, device, args, include_current_task=True, tr
     sampled_data = []
     sampled_label = []
     pseudo_label = []
+    sampled_mask = []
 
 
     if train:
@@ -522,11 +530,18 @@ def sample_data(task_id, class_mask, device, args, include_current_task=True, tr
                     sampled_label.extend([c_id] * num_sampled_pcls)
 
                     with torch.no_grad():
-                        sampled_logits = model.forward_new_head(sampled_data_single, *forward_head)['logits']
+                        sampled_logits = model.forward_new_head(sampled_data_single, *forward_head)['logits'] / args.temp
                         sampled_logits = sampled_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
-                    sampled_pseudo_label = torch.max(sampled_logits, dim=1)[1]
-                    pseudo_label.append(sampled_pseudo_label)              
+                    if args.soft_label:
+                        sampled_pseudo_label = F.softmax(sampled_logits / args.temp, dim=1)
+                        pseudo_label.append(sampled_pseudo_label)
+                        cls_mask = torch.zeros((sampled_pseudo_label.shape[0], args.nb_classes)).to(device)
+                        cls_mask[:, class_mask] = 1
+                        sampled_mask.append(cls_mask)
+                    else:
+                        sampled_pseudo_label = torch.max(sampled_logits, dim=1)[1]
+                        pseudo_label.append(sampled_pseudo_label)              
 
 
     else:
@@ -535,6 +550,10 @@ def sample_data(task_id, class_mask, device, args, include_current_task=True, tr
 
     sampled_data = torch.cat(sampled_data, dim=0).float().to(device)
     sampled_label = torch.tensor(sampled_label).long().to(device)
-    pseudo_label = torch.cat(pseudo_label, dim=0).long().to(device)
+    if args.soft_label:
+        pseudo_label = torch.cat(pseudo_label, dim=0).float().to(device)
+        sampled_mask = torch.cat(sampled_mask, dim=0).float().to(device)
+    else:
+        pseudo_label = torch.cat(pseudo_label, dim=0).long().to(device)
 
-    return sampled_data, sampled_label, pseudo_label
+    return sampled_data, sampled_label, pseudo_label. sampled_mask

@@ -155,3 +155,5 @@ def get_args_parser(subparsers):
 
     # Uncertainty training
     subparsers.add_argument('--pseudo_label', action='store_true')
+    subparsers.add_argument('--soft_label', action='store_true')
+    subparsers.add_argument('--temp', default=1.0, type=float)
