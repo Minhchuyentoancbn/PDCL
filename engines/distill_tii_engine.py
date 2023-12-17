@@ -255,6 +255,8 @@ def _compute_mean(model: torch.nn.Module, data_loader: Iterable, device: torch.d
 
 def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_mask=None, task_id=-1):
     model.train()
+    current_head = model.get_head()
+
     run_epochs = args.crct_epochs
     param_list = [p for p in model.parameters() if p.requires_grad]
     print('-' * 20)
@@ -280,18 +282,20 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
         metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
         metric_logger.add_meter('Loss', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
 
-        sampled_data, sampled_label = sample_data(task_id, class_mask, device, args, include_current_task=True, train=False)
+        sampled_data, sampled_label, pseudo_label = sample_data(task_id, class_mask, device, args, include_current_task=True, train=False, head=current_head, model=model)
         inputs = sampled_data
         targets = sampled_label
 
         sf_indexes = torch.randperm(inputs.size(0))
         inputs = inputs[sf_indexes]
         targets = targets[sf_indexes]
+        pseudo_label = pseudo_label[sf_indexes]
         #print(targets)
 
         for pos in range(0, inputs.size(0), args.batch_size):
             inp = inputs[pos:pos + args.batch_size]
-            tgt = targets[pos:pos + args.batch_size]
+            # tgt = targets[pos:pos + args.batch_size]
+            tgt = pseudo_label[pos:pos + args.batch_size]
             outputs = model(inp, fc_only=True)
             logits = outputs['logits']
 
@@ -363,53 +367,53 @@ def compute_confusion_matrix(model: torch.nn.Module, data_loader,
     return confusion_matrix
 
 
-def sample_data(task_id, class_mask, device, args, include_current_task=True, train=False):
-    sampled_data = []
-    sampled_label = []
-    if train:
-        num_sampled_pcls = int(args.batch_size / args.nb_classes * args.num_tasks)
-    else:
-        num_sampled_pcls = args.batch_size
-    if include_current_task:
-        max_task = task_id + 1
-    else:
-        max_task = task_id
+# def sample_data(task_id, class_mask, device, args, include_current_task=True, train=False):
+#     sampled_data = []
+#     sampled_label = []
+#     if train:
+#         num_sampled_pcls = int(args.batch_size / args.nb_classes * args.num_tasks)
+#     else:
+#         num_sampled_pcls = args.batch_size
+#     if include_current_task:
+#         max_task = task_id + 1
+#     else:
+#         max_task = task_id
 
-    if args.ca_storage_efficient_method in ['covariance', 'variance']:
-        for i in range(max_task):
-            for c_id in class_mask[i]:
-                mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
-                cov = cls_cov[c_id].to(device)
-                if args.ca_storage_efficient_method == 'variance':
-                    cov = torch.diag(cov)
-                m = MultivariateNormal(mean.float(), cov.float())
-                sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
-                sampled_data.append(sampled_data_single)
+#     if args.ca_storage_efficient_method in ['covariance', 'variance']:
+#         for i in range(max_task):
+#             for c_id in class_mask[i]:
+#                 mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
+#                 cov = cls_cov[c_id].to(device)
+#                 if args.ca_storage_efficient_method == 'variance':
+#                     cov = torch.diag(cov)
+#                 m = MultivariateNormal(mean.float(), cov.float())
+#                 sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
+#                 sampled_data.append(sampled_data_single)
 
-                sampled_label.extend([c_id] * num_sampled_pcls)
+#                 sampled_label.extend([c_id] * num_sampled_pcls)
 
-    elif args.ca_storage_efficient_method == 'multi-centroid':
-        num_sampled_pcls = num_sampled_pcls // args.n_centroids
-        for i in range(max_task):
-            for c_id in class_mask[i]:
-                for cluster in range(len(cls_mean[c_id])):
-                    mean = cls_mean[c_id][cluster]
-                    var = cls_cov[c_id][cluster]
-                    if var.mean() == 0:
-                        continue
-                    m = MultivariateNormal(mean.float(), (torch.diag(var) + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)).float())
-                    sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
-                    sampled_data.append(sampled_data_single)
-                    sampled_label.extend([c_id] * num_sampled_pcls)
+#     elif args.ca_storage_efficient_method == 'multi-centroid':
+#         num_sampled_pcls = num_sampled_pcls // args.n_centroids
+#         for i in range(max_task):
+#             for c_id in class_mask[i]:
+#                 for cluster in range(len(cls_mean[c_id])):
+#                     mean = cls_mean[c_id][cluster]
+#                     var = cls_cov[c_id][cluster]
+#                     if var.mean() == 0:
+#                         continue
+#                     m = MultivariateNormal(mean.float(), (torch.diag(var) + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)).float())
+#                     sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
+#                     sampled_data.append(sampled_data_single)
+#                     sampled_label.extend([c_id] * num_sampled_pcls)
 
-    else:
-        raise NotImplementedError
+#     else:
+#         raise NotImplementedError
 
 
-    sampled_data = torch.cat(sampled_data, dim=0).float().to(device)
-    sampled_label = torch.tensor(sampled_label).long().to(device)
+#     sampled_data = torch.cat(sampled_data, dim=0).float().to(device)
+#     sampled_label = torch.tensor(sampled_label).long().to(device)
 
-    return sampled_data, sampled_label
+#     return sampled_data, sampled_label
 
 
 
@@ -463,3 +467,73 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+
+
+def sample_data(task_id, class_mask, device, args, include_current_task=True, train=False, head=None, model=None):
+    sampled_data = []
+    sampled_label = []
+    pseudo_label = []
+
+
+    if train:
+        num_sampled_pcls = int(args.batch_size / args.nb_classes * args.num_tasks)
+    else:
+        num_sampled_pcls = args.batch_size
+    if include_current_task:
+        max_task = task_id + 1
+    else:
+        max_task = task_id
+
+    if args.ca_storage_efficient_method in ['covariance', 'variance']:
+        for i in range(max_task):
+            for c_id in class_mask[i]:
+                mean = torch.tensor(cls_mean[c_id], dtype=torch.float64).to(device)
+                cov = cls_cov[c_id].to(device)
+                if args.ca_storage_efficient_method == 'variance':
+                    cov = torch.diag(cov)
+                m = MultivariateNormal(mean.float(), cov.float())
+                sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
+                sampled_data.append(sampled_data_single)
+
+                sampled_label.extend([c_id] * num_sampled_pcls)
+
+
+    elif args.ca_storage_efficient_method == 'multi-centroid':
+        num_sampled_pcls = num_sampled_pcls // args.n_centroids
+        for i in range(max_task):
+            if i == task_id and head is not None:
+                forward_head = head
+            else:
+                forward_head = old_head
+
+            for c_id in class_mask[i]:
+                not_mask = np.setdiff1d(np.arange(args.nb_classes), class_mask[i])
+                not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
+
+                for cluster in range(len(cls_mean[c_id])):
+                    mean = cls_mean[c_id][cluster]
+                    var = cls_cov[c_id][cluster]
+                    if var.mean() == 0:
+                        continue
+                    m = MultivariateNormal(mean.float(), (torch.diag(var) + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)).float())
+                    sampled_data_single = m.sample(sample_shape=(num_sampled_pcls,))
+                    sampled_data.append(sampled_data_single)
+                    sampled_label.extend([c_id] * num_sampled_pcls)
+
+                    with torch.no_grad():
+                        sampled_logits = model.forward_new_head(sampled_data_single, *forward_head)
+                        sampled_logits = sampled_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
+
+                    sampled_pseudo_label = torch.max(sampled_logits, dim=1)[1]
+                    pseudo_label.append(sampled_pseudo_label)              
+
+
+    else:
+        raise NotImplementedError
+
+
+    sampled_data = torch.cat(sampled_data, dim=0).float().to(device)
+    sampled_label = torch.tensor(sampled_label).long().to(device)
+    pseudo_label = torch.cat(pseudo_label, dim=0).long().to(device)
+
+    return sampled_data, sampled_label, pseudo_label
