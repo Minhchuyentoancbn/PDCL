@@ -293,13 +293,11 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
 
         for pos in range(0, inputs.size(0), args.batch_size):
             inp = inputs[pos:pos + args.batch_size]
-            # tgt = targets[pos:pos + args.batch_size]
+            tgt = targets[pos:pos + args.batch_size]
             if args.pseudo_label:
-                tgt = pseudo_label[pos:pos + args.batch_size]
+                pseudo_tgt = pseudo_label[pos:pos + args.batch_size]
                 if args.soft_label:
                     filter_mask = sampled_mask[pos:pos + args.batch_size]
-            else:
-                tgt = targets[pos:pos + args.batch_size]
             outputs = model(inp, fc_only=True)
             logits = outputs['logits']
 
@@ -312,9 +310,12 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
                 not_mask = torch.tensor(not_mask, dtype=torch.int64).to(device)
                 logits = logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
             
-            if args.soft_label:
-                logits = logits / args.temp
-                loss = -torch.sum(torch.log_softmax(logits, dim=1) * tgt * filter_mask).mean()
+            if args.pseudo_label:
+                if args.soft_label:
+                    logits = logits / args.temp
+                    loss = -torch.sum(torch.log_softmax(logits, dim=1) * tgt * filter_mask).mean()
+                else:
+                    loss = criterion(logits, pseudo_tgt)
             else:
                 loss = criterion(logits, tgt)
 
