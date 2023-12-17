@@ -275,12 +275,16 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
 
     # TODO: efficiency may be improved by encapsulating sampled data into Datasets class and using distributed sampler.
     for epoch in range(run_epochs):
+        if args.temp_anneal and run_epochs > 1:
+            temp = 0.1 + (args.temp - 0.1) * epoch / (run_epochs - 1)
+        else:
+            temp = args.temp
             
         metric_logger = utils.MetricLogger(delimiter="  ")
         metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
         metric_logger.add_meter('Loss', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
 
-        sampled_data, sampled_label, pseudo_label, sampled_mask = sample_data(task_id, class_mask, device, args, include_current_task=True, train=False, head=current_head, model=model)
+        sampled_data, sampled_label, pseudo_label, sampled_mask = sample_data(task_id, class_mask, device, args, include_current_task=True, train=False, head=current_head, model=model, temp=temp)
         inputs = sampled_data
         targets = sampled_label
 
@@ -477,7 +481,7 @@ def train_one_epoch(model: torch.nn.Module, criterion, data_loader: Iterable, op
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
-def sample_data(task_id, class_mask, device, args, include_current_task=True, train=False, head=None, model=None):
+def sample_data(task_id, class_mask, device, args, include_current_task=True, train=False, head=None, model=None, temp=1.0):
     sampled_data = []
     sampled_label = []
     pseudo_label = []
@@ -530,7 +534,7 @@ def sample_data(task_id, class_mask, device, args, include_current_task=True, tr
                     sampled_label.extend([c_id] * num_sampled_pcls)
 
                     with torch.no_grad():
-                        sampled_logits = model.forward_new_head(sampled_data_single, *forward_head)['logits'] / args.temp
+                        sampled_logits = model.forward_new_head(sampled_data_single, *forward_head)['logits'] / temp
                         sampled_logits = sampled_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
                     if args.soft_label:

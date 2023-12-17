@@ -157,3 +157,4 @@ def get_args_parser(subparsers):
     subparsers.add_argument('--pseudo_label', action='store_true')
     subparsers.add_argument('--soft_label', action='store_true')
     subparsers.add_argument('--temp', default=1.0, type=float)
+    subparsers.add_argument('--temp_anneal', action='store_true')
