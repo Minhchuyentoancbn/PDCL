@@ -313,7 +313,7 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
             if args.pseudo_label:
                 if args.soft_label:
                     logits = logits / args.temp
-                    loss = -torch.sum(torch.log_softmax(logits, dim=1) * tgt * filter_mask).mean()
+                    loss = -torch.sum(torch.log_softmax(logits, dim=1) * pseudo_tgt * filter_mask).mean()
                 else:
                     loss = criterion(logits, pseudo_tgt)
             else:
