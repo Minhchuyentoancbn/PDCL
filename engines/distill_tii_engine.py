@@ -34,8 +34,6 @@ def train_and_evaluate(model: torch.nn.Module, model_without_ddp: torch.nn.Modul
     cls_mean = dict()
     cls_cov = dict()
 
-    args.uncertain_lr = args.uncertain_lr * args.batch_size / 256.0
-
     for task_id in range(args.num_tasks):
 
         # Create new optimizer for each task to clear optimizer status
