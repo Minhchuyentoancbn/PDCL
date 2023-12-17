@@ -521,7 +521,7 @@ def sample_data(task_id, class_mask, device, args, include_current_task=True, tr
                     sampled_label.extend([c_id] * num_sampled_pcls)
 
                     with torch.no_grad():
-                        sampled_logits = model.forward_new_head(sampled_data_single, *forward_head)
+                        sampled_logits = model.forward_new_head(sampled_data_single, *forward_head)['logits']
                         sampled_logits = sampled_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
                     sampled_pseudo_label = torch.max(sampled_logits, dim=1)[1]
