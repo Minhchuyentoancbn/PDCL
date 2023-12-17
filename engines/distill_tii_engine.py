@@ -556,4 +556,4 @@ def sample_data(task_id, class_mask, device, args, include_current_task=True, tr
     else:
         pseudo_label = torch.cat(pseudo_label, dim=0).long().to(device)
 
-    return sampled_data, sampled_label, pseudo_label. sampled_mask
+    return sampled_data, sampled_label, pseudo_label, sampled_mask
