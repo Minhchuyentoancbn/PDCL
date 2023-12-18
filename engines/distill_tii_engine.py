@@ -293,7 +293,7 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
         inputs = inputs[sf_indexes]
         targets = targets[sf_indexes]
         pseudo_label = pseudo_label[sf_indexes]
-        sampled_weights = torch.cat(sampled_weights, dim=0)[sf_indexes]
+        sampled_weights = sampled_weights[sf_indexes]
         # sampled_mask = sampled_mask[sf_indexes]
         #print(targets)
 
