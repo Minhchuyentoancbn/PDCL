@@ -285,7 +285,7 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
         metric_logger.add_meter('Lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
         metric_logger.add_meter('Loss', utils.SmoothedValue(window_size=1, fmt='{value:.4f}'))
 
-        sampled_data, sampled_label, pseudo_label, sampled_mask = sample_data(task_id, class_mask, device, args, include_current_task=True, train=False, head=current_head, model=model, temp=temp)
+        sampled_data, sampled_label, pseudo_label, sampled_weights = sample_data(task_id, class_mask, device, args, include_current_task=True, train=False, head=current_head, model=model, temp=temp)
         inputs = sampled_data
         targets = sampled_label
 
@@ -293,12 +293,14 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
         inputs = inputs[sf_indexes]
         targets = targets[sf_indexes]
         pseudo_label = pseudo_label[sf_indexes]
+        sampled_weights = torch.cat(sampled_weights, dim=0)[sf_indexes]
         # sampled_mask = sampled_mask[sf_indexes]
         #print(targets)
 
         for pos in range(0, inputs.size(0), args.batch_size):
             inp = inputs[pos:pos + args.batch_size]
             tgt = targets[pos:pos + args.batch_size]
+            weights = sampled_weights[pos:pos + args.batch_size]
             if args.pseudo_label:
                 pseudo_tgt = pseudo_label[pos:pos + args.batch_size]
                 # if args.soft_label:
@@ -319,9 +321,15 @@ def train_task_adaptive_prediction(model: torch.nn.Module, args, device, class_m
                 if args.soft_label:
                     loss = -(torch.log_softmax(logits, dim=1)[:, mask] * pseudo_tgt[:, mask]).sum(dim=1).mean()
                 else:
-                    loss = criterion(logits, pseudo_tgt)
+                    if args.entropy_weight:
+                        loss = (F.cross_entropy(logits, pseudo_tgt, reduction='none') * weights).mean()
+                    else:
+                        loss = criterion(logits, pseudo_tgt)
             else:
-                loss = criterion(logits, tgt)
+                if args.entropy_weight:
+                    loss = (F.cross_entropy(logits, tgt, reduction='none') * weights).mean()
+                else:
+                    loss = criterion(logits, tgt)
 
             acc1, acc5 = accuracy(logits, tgt, topk=(1, 5))
 
@@ -486,7 +494,7 @@ def sample_data(task_id, class_mask, device, args, include_current_task=True, tr
     sampled_data = []
     sampled_label = []
     pseudo_label = []
-    sampled_mask = []
+    sampled_weights = []
 
 
     if train:
@@ -538,12 +546,15 @@ def sample_data(task_id, class_mask, device, args, include_current_task=True, tr
                         sampled_logits = model.forward_new_head(sampled_data_single, *forward_head)['logits'] / temp
                         sampled_logits = sampled_logits.index_fill(dim=1, index=not_mask, value=float('-inf'))
 
+                    sampled_prob = F.softmax(sampled_logits, dim=1)
+                    sampled_entr = -torch.sum(sampled_prob[:, class_mask[i]] * torch.log(sampled_prob[:, class_mask[i]]), dim=1) / math.log(len(class_mask[i]))
+                    sampled_weights.append(torch.exp(-sampled_entr).detach())
+
                     if args.soft_label:
                         sampled_pseudo_label = F.softmax(sampled_logits, dim=1)
                         pseudo_label.append(sampled_pseudo_label)
-                        cls_mask = torch.zeros((sampled_pseudo_label.shape[0], args.nb_classes)).to(device)
-                        cls_mask[:, class_mask] = 1
-                        sampled_mask.append(cls_mask)
+                        # cls_mask = torch.zeros((sampled_pseudo_label.shape[0], args.nb_classes)).to(device)
+                        # cls_mask[:, class_mask] = 1
                     else:
                         sampled_pseudo_label = torch.max(sampled_logits, dim=1)[1]
                         pseudo_label.append(sampled_pseudo_label)              
@@ -555,10 +566,10 @@ def sample_data(task_id, class_mask, device, args, include_current_task=True, tr
 
     sampled_data = torch.cat(sampled_data, dim=0).float().to(device)
     sampled_label = torch.tensor(sampled_label).long().to(device)
+    sampled_weights = torch.cat(sampled_weights, dim=0).float().to(device)
     if args.soft_label:
         pseudo_label = torch.cat(pseudo_label, dim=0).float().to(device)
-        sampled_mask = torch.cat(sampled_mask, dim=0).float().to(device)
     else:
         pseudo_label = torch.cat(pseudo_label, dim=0).long().to(device)
 
-    return sampled_data, sampled_label, pseudo_label, sampled_mask
+    return sampled_data, sampled_label, pseudo_label, sampled_weights
